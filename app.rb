@@ -785,6 +785,12 @@ async function openDetail(sym){
       <div class="stat"><label>EOY Forecast</label><span class="${d.predictedEoy>=d.price?'pos':'neg'}">$${d.predictedEoy||'—'}</span></div>
       <div class="stat"><label>News Sentiment</label><span><span class="badge ${d.sentiment}">${d.sentiment} (${d.newsScore})</span></span></div>
     </div>
+    <div style="display:flex;gap:6px;justify-content:center;margin-bottom:10px" id="chart-ranges">
+      <button onclick="loadChart('${d.symbol}','1mo')" style="padding:6px 12px;border-radius:6px;border:1px solid #e5e7eb;background:#fff;color:#6b7280;font-size:12px;cursor:pointer;font-weight:600">1M</button>
+      <button onclick="loadChart('${d.symbol}','6mo')" style="padding:6px 12px;border-radius:6px;border:1px solid #e5e7eb;background:#fff;color:#6b7280;font-size:12px;cursor:pointer;font-weight:600">6M</button>
+      <button onclick="loadChart('${d.symbol}','1y')" style="padding:6px 12px;border-radius:6px;border:1px solid #e5e7eb;background:#fff;color:#6b7280;font-size:12px;cursor:pointer;font-weight:600">1Y</button>
+      <button onclick="loadChart('${d.symbol}','5y')" style="padding:6px 12px;border-radius:6px;border:1px solid #e5e7eb;background:#fff;color:#6b7280;font-size:12px;cursor:pointer;font-weight:600">5Y</button>
+    </div>
     <div class="chart-container"><canvas id="priceChart"></canvas></div>
     <div class="news-list"><h3>📰 Latest News</h3><ul>${d.headlines.map(h=>'<li>'+h+'</li>').join('')}</ul></div>
     <div style="margin-top:20px;padding:16px;background:linear-gradient(145deg,#1a1040,#0f1a2e);border-radius:10px;border:1px solid #2a2060">
@@ -799,6 +805,14 @@ async function openDetail(sym){
   `;
   drawChart(d.dates,d.closes,d.symbol);
   showExistingAlerts(d.symbol);
+}
+async function loadChart(sym,range){
+  document.querySelectorAll('#chart-ranges button').forEach(b=>{b.style.background=b.textContent.toLowerCase().replace(' ','')===range?'linear-gradient(135deg,#7c3aed,#4f46e5)':'#fff';b.style.color=b.textContent.toLowerCase().replace(' ','')===range?'#fff':'#6b7280';});
+  const map={'1mo':'1M','6mo':'6M','1y':'1Y','5y':'5Y'};
+  document.querySelectorAll('#chart-ranges button').forEach(b=>{const active=map[range]===b.textContent;b.style.background=active?'linear-gradient(135deg,#7c3aed,#4f46e5)':'#fff';b.style.color=active?'#fff':'#6b7280';});
+  const r=await fetch(`/api/chart?symbol=${sym}&range=${range}`);
+  const d=await r.json();
+  if(d.dates)drawChart(d.dates,d.closes,sym);
 }
 function drawChart(dates,closes,symbol){
   const canvas=document.getElementById('priceChart');
@@ -965,6 +979,25 @@ loop do
         detail = fetch_stock_detail(sym)
         data = JSON.generate(detail)
         client.print "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: #{data.bytesize}\r\nConnection: close\r\n\r\n#{data}"
+      else
+        json_response(client, { error: 'Not authenticated' }, '401 Unauthorized')
+      end
+
+    when path =~ /^\/api\/chart\?symbol=([A-Za-z.]+)&range=(\w+)/
+      sym = $1.upcase
+      range = $2
+      if user
+        interval = %w[5y 2y].include?(range) ? '1wk' : '1d'
+        uri = URI("https://query1.finance.yahoo.com/v8/finance/chart/#{sym}?interval=#{interval}&range=#{range}")
+        req = Net::HTTP::Get.new(uri)
+        req['User-Agent'] = 'Mozilla/5.0'
+        res = Net::HTTP.start(uri.host, uri.port, use_ssl: true, open_timeout: 10, read_timeout: 10) { |h| h.request(req) }
+        chart_data = JSON.parse(res.body)
+        timestamps = chart_data['chart']['result'][0]['timestamp'] || []
+        closes = chart_data['chart']['result'][0]['indicators']['quote'][0]['close'] || []
+        dates = timestamps.map { |t| Time.at(t).strftime('%Y-%m-%d') }
+        resp = JSON.generate({ dates: dates, closes: closes })
+        client.print "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: #{resp.bytesize}\r\nConnection: close\r\n\r\n#{resp}"
       else
         json_response(client, { error: 'Not authenticated' }, '401 Unauthorized')
       end
