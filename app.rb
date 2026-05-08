@@ -24,8 +24,10 @@ def plaid_request(endpoint, body)
   uri = URI("#{PLAID_HOST}#{endpoint}")
   req = Net::HTTP::Post.new(uri, 'Content-Type' => 'application/json')
   req.body = JSON.generate(body.merge('client_id' => PLAID_CLIENT_ID, 'secret' => PLAID_SECRET))
-  res = Net::HTTP.start(uri.host, uri.port, use_ssl: true, open_timeout: 10, read_timeout: 10) { |h| h.request(req) }
+  res = Net::HTTP.start(uri.host, uri.port, use_ssl: true, open_timeout: 15, read_timeout: 30) { |h| h.request(req) }
   JSON.parse(res.body)
+rescue => e
+  { 'error_message' => e.message }
 end
 
 def plaid_create_link_token(user_id)
@@ -1098,11 +1100,15 @@ loop do
 
     when path == '/api/plaid/link-token' && req[:method] == 'POST'
       if user
-        result = plaid_create_link_token(user)
-        if result['link_token']
-          json_response(client, { ok: true, link_token: result['link_token'] })
-        else
-          json_response(client, { ok: false, error: result['error_message'] || 'Failed to create link token' })
+        begin
+          result = plaid_create_link_token(user)
+          if result['link_token']
+            json_response(client, { ok: true, link_token: result['link_token'] })
+          else
+            json_response(client, { ok: false, error: result['error_message'] || result.to_s[0..200] })
+          end
+        rescue => e
+          json_response(client, { ok: false, error: "Plaid connection failed: #{e.message}" })
         end
       else
         json_response(client, { error: 'Not authenticated' }, '401 Unauthorized')
