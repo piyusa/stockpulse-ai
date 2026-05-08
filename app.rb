@@ -762,20 +762,23 @@ function checkAnswer(lesson,answer){
 // --- Plaid Brokerage ---
 async function connectBrokerage(){
   document.getElementById('plaid-status').textContent='Connecting...';
-  const r=await fetch('/api/plaid/link-token',{method:'POST'});
-  const d=await r.json();
-  if(!d.ok){toast(d.error||'Failed to connect','error');document.getElementById('plaid-status').textContent='';return;}
-  const handler=Plaid.create({
-    token:d.link_token,
-    onSuccess:async(public_token)=>{
-      const r2=await fetch('/api/plaid/exchange',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({public_token})});
-      const d2=await r2.json();
-      if(d2.ok){toast('Brokerage connected!');document.getElementById('plaid-status').textContent='✓ Connected';loadPlaidHoldings();}
-      else toast(d2.error||'Failed','error');
-    },
-    onExit:()=>{document.getElementById('plaid-status').textContent='';}
-  });
-  handler.open();
+  try{
+    const r=await fetch('/api/plaid/link-token',{method:'POST'});
+    const d=await r.json();
+    if(!d.ok){toast(d.error||'Failed to get link token','error');document.getElementById('plaid-status').textContent='Error: '+d.error;return;}
+    const handler=Plaid.create({
+      token:d.link_token,
+      onSuccess:async(public_token)=>{
+        document.getElementById('plaid-status').textContent='Exchanging token...';
+        const r2=await fetch('/api/plaid/exchange',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({public_token})});
+        const d2=await r2.json();
+        if(d2.ok){toast('Brokerage connected!');document.getElementById('plaid-status').textContent='✓ Connected';loadPlaidHoldings();}
+        else{toast(d2.error||'Exchange failed','error');document.getElementById('plaid-status').textContent='Error: '+(d2.error||'exchange failed');}
+      },
+      onExit:(err)=>{document.getElementById('plaid-status').textContent=err?'Error: '+err.error_message:'';}
+    });
+    handler.open();
+  }catch(e){toast('Connection error: '+e.message,'error');document.getElementById('plaid-status').textContent='Error: '+e.message;}
 }
 async function loadPlaidHoldings(){
   const r=await fetch('/api/plaid/holdings');const d=await r.json();
