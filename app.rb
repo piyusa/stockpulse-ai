@@ -614,6 +614,16 @@ async function loadAlerts(){
 }
 
 // --- Plaid Brokerage ---
+async function setAlertFromModal(sym){
+  const dir=document.getElementById('modal-al-dir').value;
+  const target=parseFloat(document.getElementById('modal-al-target').value);
+  if(!target){toast('Enter a target price','error');return;}
+  const r=await fetch('/api/alerts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({symbol:sym,direction:dir,target:target})});
+  const d=await r.json();
+  if(d.ok){toast(`Alert set: ${sym} ${dir} $${target}`);loadAlerts();}
+  else toast(d.error||'Failed','error');
+}
+// --- Plaid Brokerage ---
 async function connectBrokerage(){
   document.getElementById('plaid-status').textContent='Connecting...';
   const r=await fetch('/api/plaid/link-token',{method:'POST'});
@@ -664,6 +674,14 @@ async function openDetail(sym){
     </div>
     <div class="chart-container"><canvas id="priceChart"></canvas></div>
     <div class="news-list"><h3>📰 Latest News</h3><ul>${d.headlines.map(h=>'<li>'+h+'</li>').join('')}</ul></div>
+    <div style="margin-top:20px;padding:16px;background:linear-gradient(145deg,#1a1040,#0f1a2e);border-radius:10px;border:1px solid #2a2060">
+      <h3 style="margin:0 0 12px;color:#ffd600">🔔 Set Price Alert</h3>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <select id="modal-al-dir" style="background:#0a0a1a;border:1px solid #2a2060;color:#eee;padding:10px;border-radius:8px;font-size:13px"><option value="above">Above</option><option value="below">Below</option></select>
+        <input type="number" id="modal-al-target" placeholder="Target $" value="${d.price.toFixed(2)}" step="0.01" style="background:#0a0a1a;border:1px solid #2a2060;color:#eee;padding:10px;border-radius:8px;font-size:13px;width:120px">
+        <button onclick="setAlertFromModal('${d.symbol}')" style="background:linear-gradient(135deg,#ffd600,#ff9100);color:#000;border:none;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">Set Alert</button>
+      </div>
+    </div>
   `;
   drawChart(d.dates,d.closes,d.symbol);
 }
