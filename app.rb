@@ -30,7 +30,7 @@ end
 
 def plaid_create_link_token(user_id)
   plaid_request('/link/token/create', {
-    'user' => { 'client_user_id' => user_id },
+    'user' => { 'client_user_id' => Digest::SHA256.hexdigest(user_id)[0..31] },
     'client_name' => 'StockPulse AI',
     'products' => ['investments'],
     'country_codes' => ['US'],
