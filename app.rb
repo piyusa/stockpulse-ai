@@ -656,7 +656,7 @@ async function loadPortfolio(){
     const pct=invested>0?((pl/invested)*100).toFixed(2):0;
     totalInvested+=invested;totalValue+=value;
     const cls=pl>=0?'pos':'neg';
-    return`<tr><td>${p.symbol}</td><td>$${p.buyPrice.toFixed(2)}</td><td>$${cur.toFixed(2)}</td><td>${p.quantity}</td><td>$${invested.toFixed(2)}</td><td>$${value.toFixed(2)}</td><td class="${cls}">${pl>=0?'+':''}$${pl.toFixed(2)}</td><td class="${cls}">${pct}%</td><td><button class="btn-del" onclick="deletePortfolio(${i})">✕</button></td></tr>`;
+    return`<tr><td><a href="#" onclick="openDetail('${p.symbol}');return false" style="color:#4f46e5;text-decoration:none;font-weight:700">${p.symbol}</a></td><td>$${p.buyPrice.toFixed(2)}</td><td>$${cur.toFixed(2)}</td><td>${p.quantity}</td><td>$${invested.toFixed(2)}</td><td>$${value.toFixed(2)}</td><td class="${cls}">${pl>=0?'+':''}$${pl.toFixed(2)}</td><td class="${cls}">${pct}%</td><td><button class="btn-del" onclick="deletePortfolio(${i})">✕</button></td></tr>`;
   }).join('');
   const totalPL=totalValue-totalInvested;const totalPct=totalInvested>0?((totalPL/totalInvested)*100).toFixed(2):0;
   const cls=totalPL>=0?'pos':'neg';
