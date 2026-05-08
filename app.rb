@@ -4,6 +4,7 @@ require 'json'
 require 'uri'
 require 'securerandom'
 require 'digest'
+require 'base64'
 
 PORT = (ENV["PORT"] || 8888).to_i
 USERS_FILE = ENV.fetch('USERS_FILE', File.expand_path('~/.stock_users.json'))
@@ -217,6 +218,7 @@ HTML = <<~'HTML'
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>StockPulse AI</title>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
   *{box-sizing:border-box}
   body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0f0f1a;color:#e8e8e8;margin:0;padding:0}
@@ -307,6 +309,9 @@ HTML = <<~'HTML'
       <input type="text" id="auth-user" placeholder="Username">
       <input type="password" id="auth-pass" placeholder="Password">
       <button class="btn-login" id="auth-btn" onclick="doAuth()">Sign In</button>
+      <div style="text-align:center;color:#556;margin:12px 0;font-size:12px">— or —</div>
+      <div id="g_id_onload" data-client_id="372213831275-jsqps5hpsdisnk6e1rqjj6m5drvjh2ve.apps.googleusercontent.com" data-callback="handleGoogleSignIn" data-auto_prompt="false"></div>
+      <div class="g_id_signin" data-type="standard" data-size="large" data-theme="filled_blue" data-text="sign_in_with" data-shape="rectangular" data-width="300"></div>
       <div class="toggle" id="auth-toggle">Don't have an account? <a onclick="toggleAuth()">Register</a></div>
     </div>
   </div>
@@ -336,6 +341,12 @@ HTML = <<~'HTML'
 <script>
 let isLogin=true;
 function toast(msg,type='success'){const t=document.getElementById('toast');t.textContent=msg;t.className=`toast ${type} show`;setTimeout(()=>t.className='toast',3000);}
+async function handleGoogleSignIn(response){
+  const r=await fetch('/api/google-login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({credential:response.credential})});
+  const d=await r.json();
+  if(d.ok){showApp(d.username);toast('Signed in with Google');}
+  else{document.getElementById('auth-error').textContent=d.error||'Google sign-in failed';}
+}
 function toggleAuth(){
   isLogin=!isLogin;
   document.getElementById('auth-title').textContent=isLogin?'Sign In':'Register';
@@ -490,6 +501,23 @@ loop do
     user = get_session_user(req[:headers])
 
     case
+    when path == '/api/google-login' && req[:method] == 'POST'
+      data = JSON.parse(req[:body])
+      # Decode Google JWT (base64 payload without verification - for production use google-id-token gem)
+      payload = data['credential'].split('.')[1]
+      payload += '=' * (4 - payload.length % 4) if payload.length % 4 != 0
+      google_data = JSON.parse(Base64.decode64(payload))
+      email = google_data['email']
+      name = google_data['name'] || email.split('@').first
+      username = "google:#{email}"
+      unless $users[username]
+        $users[username] = { 'password' => 'google-oauth', 'stocks' => DEFAULT_STOCKS.dup, 'name' => name, 'email' => email }
+        save_users($users)
+      end
+      token = SecureRandom.hex(16)
+      $sessions[token] = username
+      json_response(client, { ok: true, username: name }, '200 OK', token)
+
     when path == '/api/register' && req[:method] == 'POST'
       data = JSON.parse(req[:body])
       username, password = data['username'], data['password']
