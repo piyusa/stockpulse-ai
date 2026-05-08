@@ -620,8 +620,21 @@ async function setAlertFromModal(sym){
   if(!target){toast('Enter a target price','error');return;}
   const r=await fetch('/api/alerts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({symbol:sym,direction:dir,target:target})});
   const d=await r.json();
-  if(d.ok){toast(`Alert set: ${sym} ${dir} $${target}`);loadAlerts();}
-  else toast(d.error||'Failed','error');
+  if(d.ok){
+    toast(`✓ Alert set: ${sym} ${dir} $${target}`);
+    loadAlerts();
+    showExistingAlerts(sym);
+  } else toast(d.error||'Failed','error');
+}
+async function showExistingAlerts(sym){
+  const r=await fetch('/api/alerts');const d=await r.json();
+  if(!d.ok)return;
+  const existing=(d.alerts||[]).filter(a=>a.symbol===sym);
+  const el=document.getElementById('modal-existing-alerts');
+  if(!el)return;
+  if(existing.length){
+    el.innerHTML='<div style="margin-top:12px;font-size:12px;color:#ffd600">⚡ Active alerts: '+existing.map(a=>`<span style="background:#ffd60022;padding:3px 8px;border-radius:6px;margin:2px">${a.direction} $${a.target.toFixed(2)}</span>`).join(' ')+'</div>';
+  } else el.innerHTML='';
 }
 // --- Plaid Brokerage ---
 async function connectBrokerage(){
@@ -681,9 +694,11 @@ async function openDetail(sym){
         <input type="number" id="modal-al-target" placeholder="Target $" value="${d.price.toFixed(2)}" step="0.01" style="background:#0a0a1a;border:1px solid #2a2060;color:#eee;padding:10px;border-radius:8px;font-size:13px;width:120px">
         <button onclick="setAlertFromModal('${d.symbol}')" style="background:linear-gradient(135deg,#ffd600,#ff9100);color:#000;border:none;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">Set Alert</button>
       </div>
+      <div id="modal-existing-alerts"></div>
     </div>
   `;
   drawChart(d.dates,d.closes,d.symbol);
+  showExistingAlerts(d.symbol);
 }
 function drawChart(dates,closes,symbol){
   const canvas=document.getElementById('priceChart');
