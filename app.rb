@@ -150,6 +150,11 @@ def fetch_stocks(symbols)
         slope = den != 0 ? num / den : 0
         intercept = y_mean - slope * x_mean
         predicted = (intercept + slope * (n - 1 + trading_days_left)).round(2)
+        # EOY prediction
+        year_end = Date.new(today.year, 12, 31)
+        days_to_eoy = (year_end - Date.today).to_i
+        trading_days_to_eoy = (days_to_eoy * 5.0 / 7).round
+        predicted_eoy = (intercept + slope * (n - 1 + trading_days_to_eoy)).round(2)
       end
 
       headlines = fetch_news(sym)
@@ -164,11 +169,11 @@ def fetch_stocks(symbols)
       summary = generate_summary(sym, price, prev_close, trend, overall, headlines)
 
       { symbol: sym, price: price, prevClose: prev_close, trend: trend.round(2),
-        predicted: predicted, newsSentiment: news_sentiment[:label],
+        predicted: predicted, predictedEoy: predicted_eoy, newsSentiment: news_sentiment[:label],
         newsScore: news_sentiment[:score], headlines: headlines[0..2], overall: overall,
         summary: summary }
     rescue
-      { symbol: sym, price: nil, prevClose: nil, trend: 0, predicted: nil,
+      { symbol: sym, price: nil, prevClose: nil, trend: 0, predicted: nil, predictedEoy: nil,
         newsSentiment: 'neutral', newsScore: 0, headlines: [], overall: 'neutral', summary: '' }
     end
   end
@@ -218,6 +223,10 @@ def fetch_stock_detail(sym)
     slope = den != 0 ? num / den : 0
     intercept = y_mean - slope * x_mean
     predicted = (intercept + slope * (n - 1 + trading_days_left)).round(2)
+    year_end = Date.new(today.year, 12, 31)
+    days_to_eoy = (year_end - Date.today).to_i
+    trading_days_to_eoy = (days_to_eoy * 5.0 / 7).round
+    predicted_eoy = (intercept + slope * (n - 1 + trading_days_to_eoy)).round(2)
   end
 
   # News
@@ -226,7 +235,7 @@ def fetch_stock_detail(sym)
 
   { symbol: sym, price: price, prevClose: prev_close, high52: high52, low52: low52,
     avg30: avg30, high30: high30, low30: low30, avgVolume: avg_vol,
-    predicted: predicted, sentiment: news_sentiment[:label], newsScore: news_sentiment[:score],
+    predicted: predicted, predictedEoy: predicted_eoy, sentiment: news_sentiment[:label], newsScore: news_sentiment[:score],
     headlines: headlines, dates: dates, closes: closes, highs: highs, lows: lows, volumes: volumes }
 rescue => e
   { symbol: sym, error: e.message }
@@ -402,7 +411,7 @@ HTML = <<~'HTML'
     <div class="updated" id="up">Loading...</div>
     <div id="ai-summaries" style="margin-bottom:20px"></div>
     <div class="table-wrap">
-    <table><thead><tr><th>Ticker</th><th>Price</th><th>Change</th><th>5D Trend</th><th>News</th><th>Signal</th><th>EOM Forecast</th><th></th><th></th></tr></thead>
+    <table><thead><tr><th>Ticker</th><th>Price</th><th>Change</th><th>5D Trend</th><th>News</th><th>Signal</th><th>EOM</th><th>EOY</th><th></th><th></th></tr></thead>
     <tbody id="tb"></tbody></table>
     </div>
     <h2>📰 Headlines</h2>
@@ -553,7 +562,9 @@ async function update(){
       const tCls=s.trend>=0?'pos':'neg';
       const pred=s.predicted?`$${s.predicted.toFixed(2)}`:'—';
       const pCls=s.predicted&&s.predicted>=s.price?'pos':'neg';
-      return`<tr><td><a href="#" onclick="openDetail('${s.symbol}');return false" style="color:#00d4ff;text-decoration:none">${s.symbol}</a></td><td>$${s.price.toFixed(2)}</td><td class="${cls}">${arr} ${sgn}${pct.toFixed(2)}%</td><td class="${tCls}">${trend}</td><td><span class="badge ${s.newsSentiment}">${s.newsSentiment}</span></td><td><span class="badge ${s.overall}">${s.overall}</span></td><td class="${pCls}">${pred}</td><td>${al}</td><td><button class="btn-del" onclick="removeStock('${s.symbol}')">✕</button></td></tr>`;
+      const predEoy=s.predictedEoy?`$${s.predictedEoy.toFixed(2)}`:'—';
+      const eCls=s.predictedEoy&&s.predictedEoy>=s.price?'pos':'neg';
+      return`<tr><td><a href="#" onclick="openDetail('${s.symbol}');return false" style="color:#4f46e5;text-decoration:none;font-weight:700">${s.symbol}</a></td><td>$${s.price.toFixed(2)}</td><td class="${cls}">${arr} ${sgn}${pct.toFixed(2)}%</td><td class="${tCls}">${trend}</td><td><span class="badge ${s.newsSentiment}">${s.newsSentiment}</span></td><td><span class="badge ${s.overall}">${s.overall}</span></td><td class="${pCls}">${pred}</td><td class="${eCls}">${predEoy}</td><td>${al}</td><td><button class="btn-del" onclick="removeStock('${s.symbol}')">✕</button></td></tr>`;
     }).join('');
     document.getElementById('news').innerHTML=stocks.filter(s=>s.headlines&&s.headlines.length).map(s=>`<div class="card"><h3>${s.symbol} <span class="badge ${s.newsSentiment}">${s.newsSentiment}</span></h3><ul>${s.headlines.map(h=>`<li>${h}</li>`).join('')}</ul></div>`).join('');
     document.getElementById('up').textContent=`${stocks.length} stocks • Updated: ${new Date().toLocaleString()} • Refreshes every 60s`;
@@ -771,6 +782,7 @@ async function openDetail(sym){
       <div class="stat"><label>52W Low</label><span>$${d.low52?d.low52.toFixed(2):'—'}</span></div>
       <div class="stat"><label>Avg Volume</label><span>${fmtVol}</span></div>
       <div class="stat"><label>EOM Forecast</label><span class="${d.predicted>=d.price?'pos':'neg'}">$${d.predicted||'—'}</span></div>
+      <div class="stat"><label>EOY Forecast</label><span class="${d.predictedEoy>=d.price?'pos':'neg'}">$${d.predictedEoy||'—'}</span></div>
       <div class="stat"><label>News Sentiment</label><span><span class="badge ${d.sentiment}">${d.sentiment} (${d.newsScore})</span></span></div>
     </div>
     <div class="chart-container"><canvas id="priceChart"></canvas></div>
