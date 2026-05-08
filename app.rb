@@ -392,7 +392,7 @@ HTML = <<~'HTML'
       <p>Your Personal Watchlist • Real-Time Prices • Sentiment • Prediction</p>
       <div class="status live" id="status">● LIVE</div>
     </header>
-    <div class="tabs"><button class="tab active" onclick="switchTab('watchlist')">📊 Watchlist</button><button class="tab" onclick="switchTab('portfolio')">💰 Portfolio</button><button class="tab" onclick="switchTab('alerts')">🔔 Alerts</button></div>
+    <div class="tabs"><button class="tab active" onclick="switchTab('watchlist')">📊 Watchlist</button><button class="tab" onclick="switchTab('portfolio')">💰 Portfolio</button><button class="tab" onclick="switchTab('alerts')">🔔 Alerts</button><button class="tab" onclick="switchTab('learn')">🎓 Learn</button></div>
     <div id="tab-watchlist">
     <div class="controls">
       <input type="text" id="symbolInput" placeholder="e.g. TSLA" maxlength="5">
@@ -435,6 +435,49 @@ HTML = <<~'HTML'
     <div class="table-wrap">
     <table><thead><tr><th>Ticker</th><th>Condition</th><th>Target</th><th>Status</th><th></th></tr></thead>
     <tbody id="al-tb"></tbody></table>
+    </div>
+    </div>
+    <div id="tab-learn" style="display:none">
+    <h2>🎓 Trading Coach</h2>
+    <div class="summary-box" style="border-color:#7c4dff44">
+      <h3>📍 Your Learning Path</h3>
+      <div id="learn-progress" style="margin-bottom:12px;height:6px;background:#0a0a1a;border-radius:3px;overflow:hidden"><div id="learn-bar" style="height:100%;width:0%;background:linear-gradient(90deg,#7c4dff,#00d4ff);transition:width .5s;border-radius:3px"></div></div>
+      <div id="learn-progress-text" style="font-size:12px;color:#888"></div>
+    </div>
+    <div class="news" id="lessons">
+      <div class="card" onclick="openLesson(0)" style="cursor:pointer">
+        <h3>📖 Lesson 1: Stock Market Basics</h3>
+        <ul><li>What is a stock?</li><li>How exchanges work</li><li>Market hours & terminology</li></ul>
+      </div>
+      <div class="card" onclick="openLesson(1)" style="cursor:pointer">
+        <h3>📖 Lesson 2: Reading Stock Prices</h3>
+        <ul><li>Bid, Ask & Spread</li><li>Market vs Limit orders</li><li>Understanding volume</li></ul>
+      </div>
+      <div class="card" onclick="openLesson(2)" style="cursor:pointer">
+        <h3>📖 Lesson 3: Technical Analysis</h3>
+        <ul><li>Support & Resistance</li><li>Moving averages</li><li>Trend lines & patterns</li></ul>
+      </div>
+      <div class="card" onclick="openLesson(3)" style="cursor:pointer">
+        <h3>📖 Lesson 4: Fundamental Analysis</h3>
+        <ul><li>P/E Ratio & EPS</li><li>Revenue & earnings growth</li><li>Reading financial statements</li></ul>
+      </div>
+      <div class="card" onclick="openLesson(4)" style="cursor:pointer">
+        <h3>📖 Lesson 5: Risk Management</h3>
+        <ul><li>Position sizing</li><li>Stop-loss strategies</li><li>Diversification</li></ul>
+      </div>
+      <div class="card" onclick="openLesson(5)" style="cursor:pointer">
+        <h3>📖 Lesson 6: Building a Strategy</h3>
+        <ul><li>Growth vs Value investing</li><li>Dollar-cost averaging</li><li>When to buy & sell</li></ul>
+      </div>
+    </div>
+    <div class="summary-box" id="lesson-detail" style="display:none"></div>
+    <div class="summary-box" style="border-color:#00e67644">
+      <h3>💡 Today's Trading Tip</h3>
+      <div id="daily-tip" class="summary-item" style="border:none;font-size:14px"></div>
+    </div>
+    <div class="summary-box">
+      <h3>📚 Glossary — Key Terms</h3>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px;font-size:13px" id="glossary"></div>
     </div>
     </div>
     <div class="methodology"><h3>📊 Methodology</h3><b>Sentiment:</b> Keyword analysis of Yahoo Finance headlines.<br><br><b>Signal:</b> Price momentum + news sentiment combined.<br><br><b>Prediction:</b> End-of-day forecast using linear regression on intraday 5-min candles, extrapolated to market close.<br><br><b>Source:</b> Yahoo Finance. Refreshes every 60s.</div>
@@ -525,9 +568,10 @@ setInterval(()=>{if(document.getElementById('app-view').style.display!=='none')u
 function switchTab(tab){
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
   document.querySelector(`.tab[onclick*="${tab}"]`).classList.add('active');
-  ['watchlist','portfolio','alerts'].forEach(t=>document.getElementById('tab-'+t).style.display=t===tab?'block':'none');
+  ['watchlist','portfolio','alerts','learn'].forEach(t=>document.getElementById('tab-'+t).style.display=t===tab?'block':'none');
   if(tab==='portfolio'){loadPortfolio();loadPlaidHoldings();}
   if(tab==='alerts')loadAlerts();
+  if(tab==='learn')initLearn();
 }
 
 // --- AI Summary ---
@@ -643,6 +687,43 @@ async function showExistingAlerts(sym){
     el.innerHTML='<div style="margin-top:12px;font-size:12px;color:#ffd600">⚡ Active alerts: '+existing.map(a=>`<span style="background:#ffd60022;padding:3px 8px;border-radius:6px;margin:2px">${a.direction} $${a.target.toFixed(2)}</span>`).join(' ')+'</div>';
   } else el.innerHTML='';
 }
+// --- Learning Coach ---
+const LESSONS=[
+{title:'Stock Market Basics',content:`<p><b>What is a stock?</b> A stock represents ownership in a company. When you buy a share, you own a tiny piece of that business.</p><p><b>How exchanges work:</b> Stocks trade on exchanges (NYSE, NASDAQ). Buyers and sellers are matched electronically. Prices move based on supply and demand.</p><p><b>Market hours:</b> US markets are open 9:30 AM – 4:00 PM ET, Monday–Friday. Pre-market (4–9:30 AM) and after-hours (4–8 PM) trading also exists but with less liquidity.</p><p><b>Key terms:</b> Bull market = prices rising. Bear market = prices falling 20%+. IPO = first time a company sells stock publicly.</p>`,quiz:'What does it mean to own a stock?',answers:['You loaned money to a company','You own a piece of the company','You work for the company'],correct:1},
+{title:'Reading Stock Prices',content:`<p><b>Bid & Ask:</b> The bid is the highest price a buyer will pay. The ask is the lowest price a seller will accept. The difference is the "spread."</p><p><b>Order types:</b> Market order = buy/sell immediately at current price. Limit order = buy/sell only at your specified price or better. Stop-loss = automatically sell if price drops to a level.</p><p><b>Volume:</b> The number of shares traded. High volume = lots of interest and liquidity. Low volume = harder to buy/sell without moving the price.</p>`,quiz:'What is a limit order?',answers:['Buy at any price','Buy only at your specified price or better','Buy at the worst price'],correct:1},
+{title:'Technical Analysis',content:`<p><b>Support & Resistance:</b> Support is a price level where a stock tends to stop falling (buyers step in). Resistance is where it stops rising (sellers step in).</p><p><b>Moving Averages:</b> The average price over a period (e.g., 50-day MA). When price crosses above the MA, it is often bullish. Below = bearish.</p><p><b>Patterns:</b> Head and Shoulders (reversal), Double Bottom (bullish), Cup and Handle (continuation). These help predict future price movement.</p><p><b>Pro tip:</b> Look at the 30-day chart in StockPulse detail view to spot these patterns!</p>`,quiz:'What does it mean when price crosses above the 50-day moving average?',answers:['Bearish signal','Bullish signal','No significance'],correct:1},
+{title:'Fundamental Analysis',content:`<p><b>P/E Ratio:</b> Price divided by Earnings per share. A P/E of 20 means you pay $20 for every $1 of earnings. Lower P/E = potentially undervalued.</p><p><b>EPS:</b> Earnings Per Share = company profit divided by shares outstanding. Growing EPS = company becoming more profitable.</p><p><b>Revenue growth:</b> Is the company selling more each quarter? Consistent 10%+ growth is strong.</p><p><b>Pro tip:</b> Use StockPulse AI Summary to quickly gauge if fundamentals are improving!</p>`,quiz:'A stock with P/E of 10 vs P/E of 50 — which might be undervalued?',answers:['P/E of 50','P/E of 10','Both are the same'],correct:1},
+{title:'Risk Management',content:`<p><b>Position sizing:</b> Never put more than 5-10% of your portfolio in a single stock. This limits damage if one pick goes wrong.</p><p><b>Stop-loss:</b> Set a price where you will sell to limit losses. Example: buy at $100, set stop-loss at $90 = max 10% loss.</p><p><b>Diversification:</b> Spread across sectors (tech, healthcare, finance) and asset types (stocks, bonds, ETFs).</p><p><b>Pro tip:</b> Use StockPulse Alerts to set stop-loss notifications on your positions!</p>`,quiz:'What is a good max allocation for a single stock?',answers:['50% of portfolio','5-10% of portfolio','100% of portfolio'],correct:1},
+{title:'Building a Strategy',content:`<p><b>Growth investing:</b> Buy companies growing revenue/earnings fast (often higher P/E). Think tech stocks.</p><p><b>Value investing:</b> Buy undervalued companies trading below their worth (lower P/E). Think Warren Buffett.</p><p><b>Dollar-cost averaging (DCA):</b> Invest a fixed amount regularly (e.g., $500/month) regardless of price. Reduces timing risk.</p><p><b>When to sell:</b> When your thesis changes, when a stock hits your target, or when you need to rebalance. Never panic-sell on a red day.</p><p><b>Pro tip:</b> Use StockPulse Portfolio tab to track your DCA strategy and overall returns!</p>`,quiz:'What is dollar-cost averaging?',answers:['Buying only cheap stocks','Investing a fixed amount regularly','Selling when prices drop'],correct:1}
+];
+const TIPS=['Never invest money you cannot afford to lose.','The best time to start investing was yesterday. The second best is today.','A diversified portfolio reduces risk without necessarily reducing returns.','Set your stop-loss before entering a trade, not after.','Past performance does not guarantee future results.','Buy the rumor, sell the news — prices often move before announcements.','If you cannot explain why you own a stock in one sentence, reconsider.','Time in the market beats timing the market for most investors.','Review your portfolio monthly, but avoid checking daily — it causes emotional decisions.','The stock market transfers money from the impatient to the patient.'];
+const GLOSSARY=[['Bull Market','Extended period of rising prices'],['Bear Market','Decline of 20%+ from recent highs'],['P/E Ratio','Price divided by earnings per share'],['EPS','Earnings per share — profit per stock unit'],['Market Cap','Total value of all shares outstanding'],['Dividend','Cash payment to shareholders from profits'],['ETF','Exchange-traded fund — basket of stocks'],['Volume','Number of shares traded in a period'],['Volatility','How much a price swings up and down'],['Liquidity','How easily you can buy/sell without moving price'],['Short Selling','Betting a stock will go down'],['Blue Chip','Large, stable, well-established company']];
+let completedLessons=JSON.parse(localStorage.getItem('sp_lessons')||'[]');
+function initLearn(){
+  document.getElementById('daily-tip').textContent=TIPS[new Date().getDate()%TIPS.length];
+  document.getElementById('glossary').innerHTML=GLOSSARY.map(([t,d])=>`<div style="padding:8px;background:#0a0a1a;border-radius:8px"><strong style="color:#00d4ff">${t}</strong><br><span style="color:#888">${d}</span></div>`).join('');
+  updateProgress();
+}
+function updateProgress(){
+  const pct=Math.round((completedLessons.length/LESSONS.length)*100);
+  document.getElementById('learn-bar').style.width=pct+'%';
+  document.getElementById('learn-progress-text').textContent=`${completedLessons.length}/${LESSONS.length} lessons completed (${pct}%)`;
+  document.querySelectorAll('#lessons .card').forEach((c,i)=>{if(completedLessons.includes(i))c.style.borderColor='#00e67644';});
+}
+function openLesson(idx){
+  const l=LESSONS[idx];const done=completedLessons.includes(idx);
+  document.getElementById('lesson-detail').style.display='block';
+  document.getElementById('lesson-detail').innerHTML=`<h3>${l.title} ${done?'✅':''}</h3>${l.content}<div style="margin-top:16px;padding:16px;background:#0a0a1a;border-radius:10px"><b style="color:#ffd600">Quiz:</b> ${l.quiz}<div style="margin-top:10px" id="quiz-answers">${l.answers.map((a,i)=>`<button onclick="checkAnswer(${idx},${i})" style="display:block;width:100%;text-align:left;margin:6px 0;padding:10px 14px;background:#12122a;border:1px solid #2a2060;color:#eee;border-radius:8px;cursor:pointer;font-size:13px">${a}</button>`).join('')}</div></div>`;
+  document.getElementById('lesson-detail').scrollIntoView({behavior:'smooth'});
+}
+function checkAnswer(lesson,answer){
+  const correct=LESSONS[lesson].correct===answer;
+  const btns=document.querySelectorAll('#quiz-answers button');
+  btns.forEach((b,i)=>{b.disabled=true;if(i===LESSONS[lesson].correct)b.style.background='linear-gradient(135deg,#00e67633,#00e67611)',b.style.borderColor='#00e676';else if(i===answer&&!correct)b.style.background='#ff408122',b.style.borderColor='#ff4081';});
+  if(correct&&!completedLessons.includes(lesson)){completedLessons.push(lesson);localStorage.setItem('sp_lessons',JSON.stringify(completedLessons));updateProgress();toast('✓ Correct! Lesson completed');}
+  else if(!correct)toast('✗ Try again next time','error');
+}
+
 // --- Plaid Brokerage ---
 async function connectBrokerage(){
   document.getElementById('plaid-status').textContent='Connecting...';
