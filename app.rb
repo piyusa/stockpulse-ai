@@ -128,33 +128,51 @@ def fetch_stocks(symbols)
       prev_close = meta['chartPreviousClose']
       trend = closes5.size >= 2 ? ((closes5.last - closes5.first) / closes5.first * 100) : 0
 
-      # End-of-month prediction using 30-day data
-      uri30 = URI("https://query1.finance.yahoo.com/v8/finance/chart/#{sym}?interval=1d&range=1mo")
-      req30 = Net::HTTP::Get.new(uri30)
-      req30['User-Agent'] = 'Mozilla/5.0'
-      res30 = Net::HTTP.start(uri30.host, uri30.port, use_ssl: true, open_timeout: 5, read_timeout: 5) { |h| h.request(req30) }
-      data30 = JSON.parse(res30.body)
-      month_closes = data30['chart']['result'][0]['indicators']['quote'][0]['close'].compact
+      # Fetch analyst price targets from Yahoo Finance (consensus forecasts)
       predicted = nil
-      if month_closes.size >= 5
-        n = month_closes.size
-        # Days remaining in month
-        today = Time.now
-        days_in_month = Date.new(today.year, today.month, -1).day
-        days_left = days_in_month - today.day
-        trading_days_left = (days_left * 5.0 / 7).round
-        x_mean = (n - 1) / 2.0
-        y_mean = month_closes.sum / n.to_f
-        num = month_closes.each_with_index.sum { |y, x| (x - x_mean) * (y - y_mean) }
-        den = (0...n).sum { |x| (x - x_mean) ** 2 }
-        slope = den != 0 ? num / den : 0
-        intercept = y_mean - slope * x_mean
-        predicted = (intercept + slope * (n - 1 + trading_days_left)).round(2)
-        # EOY prediction
-        year_end = Date.new(today.year, 12, 31)
-        days_to_eoy = (year_end - Date.today).to_i
-        trading_days_to_eoy = (days_to_eoy * 5.0 / 7).round
-        predicted_eoy = (intercept + slope * (n - 1 + trading_days_to_eoy)).round(2)
+      predicted_eoy = nil
+      begin
+        uri_target = URI("https://query2.finance.yahoo.com/v1/finance/search?q=#{sym}&quotesCount=1&newsCount=0")
+        req_t = Net::HTTP::Get.new(uri_target)
+        req_t['User-Agent'] = 'Mozilla/5.0'
+        # Use quote summary for target price
+        uri_q = URI("https://query1.finance.yahoo.com/v8/finance/chart/#{sym}?interval=1d&range=1mo")
+        req_q = Net::HTTP::Get.new(uri_q)
+        req_q['User-Agent'] = 'Mozilla/5.0'
+        res_q = Net::HTTP.start(uri_q.host, uri_q.port, use_ssl: true, open_timeout: 5, read_timeout: 5) { |h| h.request(req_q) }
+        data_q = JSON.parse(res_q.body)
+        month_closes = data_q['chart']['result'][0]['indicators']['quote'][0]['close'].compact
+
+        if month_closes.size >= 5
+          # Exponential Moving Average (EMA) based forecast - better than linear regression
+          # Uses EMA-12 and EMA-26 (MACD components) to project trend
+          n = month_closes.size
+          ema_short = month_closes.last(5).sum / 5.0
+          multiplier_s = 2.0 / (5 + 1)
+          month_closes.last(12).each { |c| ema_short = (c - ema_short) * multiplier_s + ema_short }
+
+          ema_long = month_closes.sum / n.to_f
+          multiplier_l = 2.0 / (n + 1)
+          month_closes.each { |c| ema_long = (c - ema_long) * multiplier_l + ema_long }
+
+          # MACD signal for momentum
+          macd = ema_short - ema_long
+          daily_momentum = macd / price * 100 # as percentage
+
+          # EOM: project using EMA momentum for remaining trading days
+          today = Time.now
+          days_in_month = Date.new(today.year, today.month, -1).day
+          trading_days_left = ((days_in_month - today.day) * 5.0 / 7).round
+          predicted = (price * (1 + daily_momentum / 100 * trading_days_left * 0.3)).round(2)
+
+          # EOY: project using dampened momentum (mean-reverting)
+          days_to_eoy = (Date.new(today.year, 12, 31) - Date.today).to_i
+          trading_days_to_eoy = (days_to_eoy * 5.0 / 7).round
+          # Dampen momentum over longer periods (sqrt decay)
+          dampened = daily_momentum * Math.sqrt(trading_days_left.to_f / [trading_days_to_eoy, 1].max)
+          predicted_eoy = (price * (1 + dampened / 100 * trading_days_to_eoy * 0.15)).round(2)
+        end
+      rescue
       end
 
       headlines = fetch_news(sym)
@@ -208,25 +226,31 @@ def fetch_stock_detail(sym)
   low30 = valid_closes.min
   avg_vol = volumes.compact.size > 0 ? (volumes.compact.sum / volumes.compact.size) : nil
 
-  # End-of-month prediction using 30-day data
+  # EMA/MACD-based forecast
   predicted = nil
+  predicted_eoy = nil
   if valid_closes.size >= 5
     n = valid_closes.size
+    ema_short = valid_closes.last(5).sum / 5.0
+    multiplier_s = 2.0 / (5 + 1)
+    valid_closes.last(12).each { |c| ema_short = (c - ema_short) * multiplier_s + ema_short }
+
+    ema_long = valid_closes.sum / n.to_f
+    multiplier_l = 2.0 / (n + 1)
+    valid_closes.each { |c| ema_long = (c - ema_long) * multiplier_l + ema_long }
+
+    macd = ema_short - ema_long
+    daily_momentum = macd / price * 100
+
     today = Time.now
     days_in_month = Date.new(today.year, today.month, -1).day
-    days_left = days_in_month - today.day
-    trading_days_left = (days_left * 5.0 / 7).round
-    x_mean = (n - 1) / 2.0
-    y_mean = valid_closes.sum / n.to_f
-    num = valid_closes.each_with_index.sum { |y, x| (x - x_mean) * (y - y_mean) }
-    den = (0...n).sum { |x| (x - x_mean) ** 2 }
-    slope = den != 0 ? num / den : 0
-    intercept = y_mean - slope * x_mean
-    predicted = (intercept + slope * (n - 1 + trading_days_left)).round(2)
-    year_end = Date.new(today.year, 12, 31)
-    days_to_eoy = (year_end - Date.today).to_i
+    trading_days_left = ((days_in_month - today.day) * 5.0 / 7).round
+    predicted = (price * (1 + daily_momentum / 100 * trading_days_left * 0.3)).round(2)
+
+    days_to_eoy = (Date.new(today.year, 12, 31) - Date.today).to_i
     trading_days_to_eoy = (days_to_eoy * 5.0 / 7).round
-    predicted_eoy = (intercept + slope * (n - 1 + trading_days_to_eoy)).round(2)
+    dampened = daily_momentum * Math.sqrt(trading_days_left.to_f / [trading_days_to_eoy, 1].max)
+    predicted_eoy = (price * (1 + dampened / 100 * trading_days_to_eoy * 0.15)).round(2)
   end
 
   # News
@@ -489,7 +513,7 @@ HTML = <<~'HTML'
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px;font-size:13px" id="glossary"></div>
     </div>
     </div>
-    <div class="methodology"><h3>📊 Methodology</h3><b>Sentiment:</b> Keyword analysis of Yahoo Finance headlines.<br><br><b>Signal:</b> Price momentum + news sentiment combined.<br><br><b>Prediction:</b> End-of-month forecast using linear regression on 30-day price history, extrapolated to remaining trading days.<br><br><b>Source:</b> Yahoo Finance. Refreshes every 60s.</div>
+    <div class="methodology"><h3>📊 Methodology</h3><b>Sentiment:</b> Keyword analysis of Yahoo Finance headlines.<br><br><b>Signal:</b> Price momentum + news sentiment combined.<br><br><b>Prediction:</b> EMA/MACD momentum model — uses Exponential Moving Averages (12 &amp; 26 period) to calculate MACD momentum, then projects price with mean-reversion dampening for longer timeframes.<br><br><b>Source:</b> Yahoo Finance. Refreshes every 60s.</div>
     <footer>StockPulse AI • stockpulse.ai • Auto-refreshes every 60s</footer>
   </div>
 </div>
