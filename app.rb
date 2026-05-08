@@ -568,6 +568,11 @@ async function addStock(){
   const r=await fetch('/api/add?symbol='+sym);const d=await r.json();
   if(d.ok){toast(`${sym} added`);input.value='';update();}else toast(d.error,'error');
 }
+async function addToWatchlist(sym){
+  const r=await fetch('/api/add?symbol='+sym);const d=await r.json();
+  if(d.ok)toast(`${sym} added to watchlist`);
+  else toast(d.error||'Already in watchlist','error');
+}
 async function removeStock(sym){
   if(!confirm(`Remove ${sym}?`))return;
   const r=await fetch('/api/remove?symbol='+sym);const d=await r.json();
@@ -656,7 +661,7 @@ async function loadPortfolio(){
     const pct=invested>0?((pl/invested)*100).toFixed(2):0;
     totalInvested+=invested;totalValue+=value;
     const cls=pl>=0?'pos':'neg';
-    return`<tr><td><a href="#" onclick="openDetail('${p.symbol}');return false" style="color:#4f46e5;text-decoration:none;font-weight:700">${p.symbol}</a></td><td>$${p.buyPrice.toFixed(2)}</td><td>$${cur.toFixed(2)}</td><td>${p.quantity}</td><td>$${invested.toFixed(2)}</td><td>$${value.toFixed(2)}</td><td class="${cls}">${pl>=0?'+':''}$${pl.toFixed(2)}</td><td class="${cls}">${pct}%</td><td><button class="btn-del" onclick="deletePortfolio(${i})">✕</button></td></tr>`;
+    return`<tr><td><a href="#" onclick="openDetail('${p.symbol}');return false" style="color:#4f46e5;text-decoration:none;font-weight:700">${p.symbol}</a></td><td>$${p.buyPrice.toFixed(2)}</td><td>$${cur.toFixed(2)}</td><td>${p.quantity}</td><td>$${invested.toFixed(2)}</td><td>$${value.toFixed(2)}</td><td class="${cls}">${pl>=0?'+':''}$${pl.toFixed(2)}</td><td class="${cls}">${pct}%</td><td><button onclick="addToWatchlist('${p.symbol}')" style="background:#eef2ff;color:#4f46e5;border:1px solid #c7d2fe;padding:4px 8px;border-radius:6px;font-size:11px;cursor:pointer" title="Add to Watchlist">+👁</button></td><td><button class="btn-del" onclick="deletePortfolio(${i})">✕</button></td></tr>`;
   }).join('');
   const totalPL=totalValue-totalInvested;const totalPct=totalInvested>0?((totalPL/totalInvested)*100).toFixed(2):0;
   const cls=totalPL>=0?'pos':'neg';
@@ -785,7 +790,7 @@ async function connectBrokerage(){
 async function loadPlaidHoldings(){
   const r=await fetch('/api/plaid/holdings');const d=await r.json();
   if(!d.ok||!d.holdings){document.getElementById('plaid-holdings').innerHTML='';return;}
-  const rows=d.holdings.filter(h=>h.symbol!=='N/A').map(h=>`<tr><td><a href="#" onclick="openDetail('${h.symbol}');return false" style="color:#4f46e5;text-decoration:none;font-weight:700">${h.symbol}</a></td><td>${h.quantity}</td><td>$${(h.costBasis||0).toFixed(2)}</td><td>$${(h.value||0).toFixed(2)}</td></tr>`).join('');
+  const rows=d.holdings.filter(h=>h.symbol!=='N/A').map(h=>`<tr><td><a href="#" onclick="openDetail('${h.symbol}');return false" style="color:#4f46e5;text-decoration:none;font-weight:700">${h.symbol}</a></td><td>${h.quantity}</td><td>$${(h.costBasis||0).toFixed(2)}</td><td>$${(h.value||0).toFixed(2)}</td><td><button onclick="addToWatchlist('${h.symbol}')" style="background:#eef2ff;color:#4f46e5;border:1px solid #c7d2fe;padding:4px 8px;border-radius:6px;font-size:11px;cursor:pointer" title="Add to Watchlist">+👁</button></td></tr>`).join('');
   document.getElementById('plaid-holdings').innerHTML=`<div class="table-wrap"><table><thead><tr><th style="text-align:left">Ticker</th><th>Shares</th><th>Cost Basis</th><th>Value</th></tr></thead><tbody>${rows}</tbody></table></div><p style="text-align:center;font-size:11px;color:#556">Live holdings from connected brokerage</p>`;
 }
 
