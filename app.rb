@@ -427,7 +427,7 @@ HTML = <<~'HTML'
       <p>Your Personal Watchlist • Real-Time Prices • Sentiment • Prediction</p>
       <div class="status live" id="status">● LIVE</div>
     </header>
-    <div class="tabs"><button class="tab active" onclick="switchTab('watchlist')">📊 Watchlist</button><button class="tab" onclick="switchTab('portfolio')">💰 Portfolio</button><button class="tab" onclick="switchTab('alerts')">🔔 Alerts</button><button class="tab" onclick="switchTab('learn')">🎓 Learn</button></div>
+    <div class="tabs"><button class="tab active" onclick="switchTab('watchlist')">📊 Watchlist</button><button class="tab" onclick="switchTab('portfolio')">💰 Portfolio</button><button class="tab" onclick="switchTab('alerts')">🔔 Alerts</button><button class="tab" onclick="switchTab('papertrade')">🎮 Paper Trade</button><button class="tab" onclick="switchTab('heatmap')">🗺️ Heatmap</button><button class="tab" onclick="switchTab('learn')">🎓 Learn</button></div>
     <div id="tab-watchlist">
     <div class="controls">
       <input type="text" id="symbolInput" placeholder="e.g. TSLA" maxlength="5">
@@ -470,6 +470,38 @@ HTML = <<~'HTML'
     <table><thead><tr><th>Ticker</th><th>Condition</th><th>Target</th><th>Status</th><th></th></tr></thead>
     <tbody id="al-tb"></tbody></table>
     </div>
+    </div>
+    <div id="tab-papertrade" style="display:none">
+    <h2>🎮 Paper Trading Simulator</h2>
+    <div class="summary-box" style="border-color:#4f46e544">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+        <div><span style="font-size:12px;color:#6b7280">Cash Balance</span><br><strong id="pt-cash" style="font-size:24px;color:#1a1a2e">$100,000.00</strong></div>
+        <div><span style="font-size:12px;color:#6b7280">Portfolio Value</span><br><strong id="pt-value" style="font-size:24px;color:#1a1a2e">$0.00</strong></div>
+        <div><span style="font-size:12px;color:#6b7280">Total P&L</span><br><strong id="pt-pnl" style="font-size:24px">$0.00</strong></div>
+        <button onclick="resetPaperTrade()" style="background:#fef2f2;color:#dc2626;border:1px solid #fecaca;padding:8px 14px;border-radius:8px;font-size:12px;cursor:pointer">Reset Account</button>
+      </div>
+    </div>
+    <div class="controls">
+      <select id="pt-action" style="width:80px"><option value="buy">Buy</option><option value="sell">Sell</option></select>
+      <input type="text" id="pt-symbol" placeholder="Ticker" maxlength="5" style="width:80px">
+      <input type="number" id="pt-qty" placeholder="Shares" step="1" style="width:90px;background:#fff;border:1px solid #e5e7eb;color:#1a1a2e;padding:10px;border-radius:8px;font-size:14px">
+      <button class="btn-add" onclick="executePaperTrade()">Execute Trade</button>
+    </div>
+    <div class="table-wrap">
+    <table><thead><tr><th>Ticker</th><th>Shares</th><th>Avg Cost</th><th>Current</th><th>Value</th><th>P&L</th><th>%</th></tr></thead>
+    <tbody id="pt-positions"></tbody></table>
+    </div>
+    <h3 style="color:#6b7280;font-size:14px;margin-top:20px">📜 Trade History</h3>
+    <div class="table-wrap">
+    <table><thead><tr><th>Date</th><th>Action</th><th>Ticker</th><th>Shares</th><th>Price</th><th>Total</th></tr></thead>
+    <tbody id="pt-history"></tbody></table>
+    </div>
+    </div>
+    <div id="tab-heatmap" style="display:none">
+    <h2>🗺️ Sector Heatmap</h2>
+    <p style="color:#6b7280;text-align:center;margin-bottom:20px">Daily performance of S&P 500 sectors</p>
+    <div id="heatmap-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-bottom:30px"></div>
+    <div class="updated" id="heatmap-updated"></div>
     </div>
     <div id="tab-learn" style="display:none">
     <h2>🎓 Trading Coach</h2>
@@ -633,10 +665,12 @@ setInterval(()=>{if(document.getElementById('app-view').style.display!=='none')u
 function switchTab(tab){
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
   document.querySelector(`.tab[onclick*="${tab}"]`).classList.add('active');
-  ['watchlist','portfolio','alerts','learn'].forEach(t=>document.getElementById('tab-'+t).style.display=t===tab?'block':'none');
+  ['watchlist','portfolio','alerts','papertrade','heatmap','learn'].forEach(t=>document.getElementById('tab-'+t).style.display=t===tab?'block':'none');
   if(tab==='portfolio'){loadPortfolio();}
   if(tab==='alerts')loadAlerts();
   if(tab==='learn')initLearn();
+  if(tab==='papertrade')loadPaperTrade();
+  if(tab==='heatmap')loadHeatmap();
 }
 
 // --- AI Summary ---
@@ -773,6 +807,71 @@ async function showExistingAlerts(sym){
     el.innerHTML='<div style="margin-top:12px;font-size:12px;color:#ffd600">⚡ Active alerts: '+existing.map(a=>`<span style="background:#ffd60022;padding:3px 8px;border-radius:6px;margin:2px">${a.direction} $${a.target.toFixed(2)}</span>`).join(' ')+'</div>';
   } else el.innerHTML='';
 }
+// --- Paper Trading ---
+async function loadPaperTrade(){
+  const r=await fetch('/api/papertrade');const d=await r.json();
+  if(!d.ok)return;
+  const pt=d.papertrade;
+  document.getElementById('pt-cash').textContent=`$${pt.cash.toFixed(2)}`;
+  const prices={};for(const s of lastStocks)prices[s.symbol]=s.price;
+  let totalValue=0;
+  if(pt.positions.length){
+    document.getElementById('pt-positions').innerHTML=pt.positions.map(p=>{
+      const cur=prices[p.symbol]||p.avgCost;
+      const val=cur*p.quantity;totalValue+=val;
+      const pl=val-(p.avgCost*p.quantity);
+      const pct=((pl/(p.avgCost*p.quantity))*100).toFixed(2);
+      const cls=pl>=0?'pos':'neg';
+      return`<tr><td><a href="#" onclick="openDetail('${p.symbol}');return false" style="color:#4f46e5;text-decoration:none;font-weight:700">${p.symbol}</a></td><td>${p.quantity}</td><td>$${p.avgCost.toFixed(2)}</td><td>$${cur.toFixed(2)}</td><td>$${val.toFixed(2)}</td><td class="${cls}">${pl>=0?'+':''}$${pl.toFixed(2)}</td><td class="${cls}">${pct}%</td></tr>`;
+    }).join('');
+  }else{document.getElementById('pt-positions').innerHTML='<tr><td colspan="7" style="text-align:center;color:#9ca3af;padding:20px">No positions. Make your first trade!</td></tr>';}
+  document.getElementById('pt-value').textContent=`$${totalValue.toFixed(2)}`;
+  const totalPnl=(pt.cash+totalValue)-100000;
+  const pnlEl=document.getElementById('pt-pnl');
+  pnlEl.textContent=`${totalPnl>=0?'+':''}$${totalPnl.toFixed(2)}`;
+  pnlEl.className=totalPnl>=0?'pos':'neg';
+  document.getElementById('pt-history').innerHTML=(pt.history||[]).slice(0,10).map(h=>`<tr><td>${h.date}</td><td style="color:${h.action==='BUY'?'#059669':'#dc2626'};font-weight:700">${h.action}</td><td>${h.symbol}</td><td>${h.quantity}</td><td>$${h.price.toFixed(2)}</td><td>$${(h.price*h.quantity).toFixed(2)}</td></tr>`).join('')||'<tr><td colspan="6" style="text-align:center;color:#9ca3af;padding:20px">No trades yet</td></tr>';
+}
+async function executePaperTrade(){
+  const action=document.getElementById('pt-action').value;
+  const sym=document.getElementById('pt-symbol').value.trim().toUpperCase();
+  const qty=parseInt(document.getElementById('pt-qty').value);
+  if(!sym||!qty||qty<=0){toast('Enter ticker and quantity','error');return;}
+  // Get current price
+  let price=0;
+  const found=lastStocks.find(s=>s.symbol===sym);
+  if(found)price=found.price;
+  else{try{const r=await fetch('/api/detail?symbol='+sym);const d=await r.json();price=d.price;}catch(e){}}
+  if(!price){toast('Could not get price for '+sym,'error');return;}
+  const r=await fetch('/api/papertrade',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,symbol:sym,quantity:qty,price})});
+  const d=await r.json();
+  if(d.ok){toast(`${action.toUpperCase()} ${qty} ${sym} @ $${price.toFixed(2)}`);document.getElementById('pt-symbol').value='';document.getElementById('pt-qty').value='';loadPaperTrade();}
+  else toast(d.error,'error');
+}
+async function resetPaperTrade(){
+  if(!confirm('Reset paper trading account? All positions and history will be cleared.'))return;
+  await fetch('/api/papertrade/reset',{method:'POST'});
+  toast('Paper trading account reset to $100,000');loadPaperTrade();
+}
+
+// --- Sector Heatmap ---
+async function loadHeatmap(){
+  document.getElementById('heatmap-grid').innerHTML='<p style="text-align:center;color:#9ca3af;grid-column:1/-1">Loading sectors...</p>';
+  const r=await fetch('/api/heatmap');const sectors=await r.json();
+  document.getElementById('heatmap-grid').innerHTML=sectors.map(s=>{
+    const intensity=Math.min(Math.abs(s.change)*20,100);
+    const bg=s.change>=0?`rgba(5,150,105,${intensity/100*0.3})`:`rgba(220,38,38,${intensity/100*0.3})`;
+    const border=s.change>=0?'#a7f3d0':'#fecaca';
+    const color=s.change>=0?'#059669':'#dc2626';
+    return`<div style="background:${bg};border:1px solid ${border};border-radius:12px;padding:20px;text-align:center;cursor:pointer" onclick="openDetail('${s.symbol}')">
+      <div style="font-size:13px;color:#6b7280;margin-bottom:4px">${s.name}</div>
+      <div style="font-size:22px;font-weight:700;color:${color}">${s.change>=0?'+':''}${s.change}%</div>
+      <div style="font-size:11px;color:#9ca3af;margin-top:4px">${s.symbol} • $${s.price?s.price.toFixed(2):'—'}</div>
+    </div>`;
+  }).join('');
+  document.getElementById('heatmap-updated').textContent=`Updated: ${new Date().toLocaleString()}`;
+}
+
 // --- Learning Coach ---
 const LESSONS=[
 {title:'Stock Market Basics',content:`<p><b>What is a stock?</b> A stock represents ownership in a company. When you buy a share, you own a tiny piece of that business.</p><p><b>How exchanges work:</b> Stocks trade on exchanges (NYSE, NASDAQ). Buyers and sellers are matched electronically. Prices move based on supply and demand.</p><p><b>Market hours:</b> US markets are open 9:30 AM – 4:00 PM ET, Monday–Friday. Pre-market (4–9:30 AM) and after-hours (4–8 PM) trading also exists but with less liquidity.</p><p><b>Key terms:</b> Bull market = prices rising. Bear market = prices falling 20%+. IPO = first time a company sells stock publicly.</p>`,quiz:'What does it mean to own a stock?',answers:['You loaned money to a company','You own a piece of the company','You work for the company'],correct:1},
@@ -1147,6 +1246,91 @@ loop do
       else
         json_response(client, { error: 'Not authenticated' }, '401 Unauthorized')
       end
+
+    when path == '/api/papertrade' && req[:method] == 'GET'
+      if user && $users[user]
+        pt = $users[user]['papertrade'] || { 'cash' => 100000, 'positions' => [], 'history' => [] }
+        json_response(client, { ok: true, papertrade: pt })
+      else
+        json_response(client, { error: 'Not authenticated' }, '401 Unauthorized')
+      end
+
+    when path == '/api/papertrade' && req[:method] == 'POST'
+      if user && $users[user]
+        data = JSON.parse(req[:body])
+        $users[user]['papertrade'] ||= { 'cash' => 100000, 'positions' => [], 'history' => [] }
+        pt = $users[user]['papertrade']
+        sym = data['symbol'].upcase
+        qty = data['quantity'].to_i
+        price = data['price'].to_f
+        action = data['action']
+        total = price * qty
+
+        if action == 'buy'
+          if total > pt['cash']
+            json_response(client, { ok: false, error: "Insufficient cash. Need $#{total.round(2)}, have $#{pt['cash'].round(2)}" })
+          else
+            pt['cash'] -= total
+            pos = pt['positions'].find { |p| p['symbol'] == sym }
+            if pos
+              pos['avgCost'] = ((pos['avgCost'] * pos['quantity']) + total) / (pos['quantity'] + qty)
+              pos['quantity'] += qty
+            else
+              pt['positions'] << { 'symbol' => sym, 'quantity' => qty, 'avgCost' => price }
+            end
+            pt['history'].unshift({ 'date' => Time.now.strftime('%m/%d %H:%M'), 'action' => 'BUY', 'symbol' => sym, 'quantity' => qty, 'price' => price })
+            save_users($users)
+            json_response(client, { ok: true })
+          end
+        elsif action == 'sell'
+          pos = pt['positions'].find { |p| p['symbol'] == sym }
+          if !pos || pos['quantity'] < qty
+            json_response(client, { ok: false, error: "Not enough shares. Have #{pos ? pos['quantity'] : 0}" })
+          else
+            pt['cash'] += total
+            pos['quantity'] -= qty
+            pt['positions'].reject! { |p| p['quantity'] <= 0 }
+            pt['history'].unshift({ 'date' => Time.now.strftime('%m/%d %H:%M'), 'action' => 'SELL', 'symbol' => sym, 'quantity' => qty, 'price' => price })
+            save_users($users)
+            json_response(client, { ok: true })
+          end
+        end
+      else
+        json_response(client, { error: 'Not authenticated' }, '401 Unauthorized')
+      end
+
+    when path == '/api/papertrade/reset' && req[:method] == 'POST'
+      if user && $users[user]
+        $users[user]['papertrade'] = { 'cash' => 100000, 'positions' => [], 'history' => [] }
+        save_users($users)
+        json_response(client, { ok: true })
+      else
+        json_response(client, { error: 'Not authenticated' }, '401 Unauthorized')
+      end
+
+    when path == '/api/heatmap'
+      sectors = { 'XLK' => 'Technology', 'XLF' => 'Financials', 'XLV' => 'Healthcare',
+                  'XLY' => 'Consumer Disc.', 'XLP' => 'Consumer Staples', 'XLE' => 'Energy',
+                  'XLI' => 'Industrials', 'XLB' => 'Materials', 'XLRE' => 'Real Estate',
+                  'XLU' => 'Utilities', 'XLC' => 'Communication' }
+      results = sectors.map do |etf, name|
+        begin
+          uri = URI("https://query1.finance.yahoo.com/v8/finance/chart/#{etf}?interval=1d&range=1d")
+          r = Net::HTTP::Get.new(uri)
+          r['User-Agent'] = 'Mozilla/5.0'
+          res = Net::HTTP.start(uri.host, uri.port, use_ssl: true, open_timeout: 5, read_timeout: 5) { |h| h.request(r) }
+          d = JSON.parse(res.body)
+          meta = d['chart']['result'][0]['meta']
+          price = meta['regularMarketPrice']
+          prev = meta['chartPreviousClose']
+          pct = ((price - prev) / prev * 100).round(2)
+          { name: name, symbol: etf, price: price, change: pct }
+        rescue
+          { name: name, symbol: etf, price: nil, change: 0 }
+        end
+      end
+      data = JSON.generate(results)
+      client.print "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: #{data.bytesize}\r\nConnection: close\r\n\r\n#{data}"
 
     when path == '/api/plaid/link-token' && req[:method] == 'POST'
       if user
