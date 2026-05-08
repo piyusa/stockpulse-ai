@@ -904,9 +904,16 @@ loop do
       if user && $users[user]
         data = JSON.parse(req[:body])
         $users[user]['alerts'] ||= []
-        $users[user]['alerts'] << { 'symbol' => data['symbol'].upcase, 'target' => data['target'].to_f, 'direction' => data['direction'] || 'above' }
-        save_users($users)
-        json_response(client, { ok: true })
+        sym = data['symbol'].upcase
+        target = data['target'].to_f
+        direction = data['direction'] || 'above'
+        if $users[user]['alerts'].any? { |a| a['symbol'] == sym && a['target'] == target && a['direction'] == direction }
+          json_response(client, { ok: false, error: "Alert already exists for #{sym} #{direction} $#{target}" })
+        else
+          $users[user]['alerts'] << { 'symbol' => sym, 'target' => target, 'direction' => direction }
+          save_users($users)
+          json_response(client, { ok: true })
+        end
       else
         json_response(client, { error: 'Not authenticated' }, '401 Unauthorized')
       end
