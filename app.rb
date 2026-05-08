@@ -14,7 +14,10 @@ DEFAULT_STOCKS = %w[AAPL MSFT NVDA GOOG AMZN META TSM AVGO ORCL CRM]
 PLAID_CLIENT_ID = ENV.fetch('PLAID_CLIENT_ID', '69fe13dbee876c000e7c3068')
 PLAID_SECRET = ENV.fetch('PLAID_SECRET', 'd317e1fe2ddfb2e89bc603a0f8d1f0')
 PLAID_ENV = ENV.fetch('PLAID_ENV', 'development')
-PLAID_HOST = "https://#{PLAID_ENV}.plaid.com"
+PLAID_HOST = case PLAID_ENV
+             when 'production' then 'https://production.plaid.com'
+             else 'https://sandbox.plaid.com'
+             end
 
 POSITIVE_WORDS = %w[surge rally gain rise jump soar beat bullish upgrade buy strong growth boom record high peak outperform positive optimistic profit revenue earnings exceeded].freeze
 NEGATIVE_WORDS = %w[drop fall crash decline plunge miss bearish downgrade sell weak loss slump low cut risk fear concern negative pessimistic layoff recession tariff].freeze
