@@ -5,6 +5,7 @@ require 'uri'
 require 'securerandom'
 require 'digest'
 require 'base64'
+require 'date'
 
 PORT = (ENV["PORT"] || 8888).to_i
 USERS_FILE = ENV.fetch('USERS_FILE', File.expand_path('~/.stock_users.json'))
@@ -114,39 +115,41 @@ end
 def fetch_stocks(symbols)
   symbols.map do |sym|
     begin
-      # Intraday data for EOD prediction
-      uri_intra = URI("https://query1.finance.yahoo.com/v8/finance/chart/#{sym}?interval=5m&range=1d")
-      req = Net::HTTP::Get.new(uri_intra)
-      req['User-Agent'] = 'Mozilla/5.0'
-      res = Net::HTTP.start(uri_intra.host, uri_intra.port, use_ssl: true, open_timeout: 5, read_timeout: 5) { |h| h.request(req) }
-      data = JSON.parse(res.body)
-      meta = data['chart']['result'][0]['meta']
-      intra_closes = data['chart']['result'][0]['indicators']['quote'][0]['close'].compact
-
-      price = meta['regularMarketPrice']
-      prev_close = meta['chartPreviousClose']
-
       # 5-day data for trend
       uri5 = URI("https://query1.finance.yahoo.com/v8/finance/chart/#{sym}?interval=1d&range=5d")
       req5 = Net::HTTP::Get.new(uri5)
       req5['User-Agent'] = 'Mozilla/5.0'
       res5 = Net::HTTP.start(uri5.host, uri5.port, use_ssl: true, open_timeout: 5, read_timeout: 5) { |h| h.request(req5) }
       data5 = JSON.parse(res5.body)
+      meta = data5['chart']['result'][0]['meta']
       closes5 = data5['chart']['result'][0]['indicators']['quote'][0]['close'].compact
+
+      price = meta['regularMarketPrice']
+      prev_close = meta['chartPreviousClose']
       trend = closes5.size >= 2 ? ((closes5.last - closes5.first) / closes5.first * 100) : 0
 
-      # EOD prediction: linear regression on intraday 5-min candles, extrapolate to market close (78 intervals in 6.5hr day)
+      # End-of-month prediction using 30-day data
+      uri30 = URI("https://query1.finance.yahoo.com/v8/finance/chart/#{sym}?interval=1d&range=1mo")
+      req30 = Net::HTTP::Get.new(uri30)
+      req30['User-Agent'] = 'Mozilla/5.0'
+      res30 = Net::HTTP.start(uri30.host, uri30.port, use_ssl: true, open_timeout: 5, read_timeout: 5) { |h| h.request(req30) }
+      data30 = JSON.parse(res30.body)
+      month_closes = data30['chart']['result'][0]['indicators']['quote'][0]['close'].compact
       predicted = nil
-      if intra_closes.size >= 5
-        n = intra_closes.size
-        total_intervals = 78 # 6.5 hours * 12 intervals/hr
+      if month_closes.size >= 5
+        n = month_closes.size
+        # Days remaining in month
+        today = Time.now
+        days_in_month = Date.new(today.year, today.month, -1).day
+        days_left = days_in_month - today.day
+        trading_days_left = (days_left * 5.0 / 7).round
         x_mean = (n - 1) / 2.0
-        y_mean = intra_closes.sum / n.to_f
-        num = intra_closes.each_with_index.sum { |y, x| (x - x_mean) * (y - y_mean) }
+        y_mean = month_closes.sum / n.to_f
+        num = month_closes.each_with_index.sum { |y, x| (x - x_mean) * (y - y_mean) }
         den = (0...n).sum { |x| (x - x_mean) ** 2 }
         slope = den != 0 ? num / den : 0
         intercept = y_mean - slope * x_mean
-        predicted = (intercept + slope * (total_intervals - 1)).round(2)
+        predicted = (intercept + slope * (n - 1 + trading_days_left)).round(2)
       end
 
       headlines = fetch_news(sym)
@@ -200,24 +203,21 @@ def fetch_stock_detail(sym)
   low30 = valid_closes.min
   avg_vol = volumes.compact.size > 0 ? (volumes.compact.sum / volumes.compact.size) : nil
 
-  # EOD prediction using intraday data
-  uri_intra = URI("https://query1.finance.yahoo.com/v8/finance/chart/#{sym}?interval=5m&range=1d")
-  req = Net::HTTP::Get.new(uri_intra)
-  req['User-Agent'] = 'Mozilla/5.0'
-  res_intra = Net::HTTP.start(uri_intra.host, uri_intra.port, use_ssl: true, open_timeout: 5, read_timeout: 5) { |h| h.request(req) }
-  intra_data = JSON.parse(res_intra.body)
-  intra_closes = intra_data['chart']['result'][0]['indicators']['quote'][0]['close'].compact
+  # End-of-month prediction using 30-day data
   predicted = nil
-  if intra_closes.size >= 5
-    n = intra_closes.size
-    total_intervals = 78
+  if valid_closes.size >= 5
+    n = valid_closes.size
+    today = Time.now
+    days_in_month = Date.new(today.year, today.month, -1).day
+    days_left = days_in_month - today.day
+    trading_days_left = (days_left * 5.0 / 7).round
     x_mean = (n - 1) / 2.0
-    y_mean = intra_closes.sum / n.to_f
-    num = intra_closes.each_with_index.sum { |y, x| (x - x_mean) * (y - y_mean) }
+    y_mean = valid_closes.sum / n.to_f
+    num = valid_closes.each_with_index.sum { |y, x| (x - x_mean) * (y - y_mean) }
     den = (0...n).sum { |x| (x - x_mean) ** 2 }
     slope = den != 0 ? num / den : 0
     intercept = y_mean - slope * x_mean
-    predicted = (intercept + slope * (total_intervals - 1)).round(2)
+    predicted = (intercept + slope * (n - 1 + trading_days_left)).round(2)
   end
 
   # News
@@ -402,7 +402,7 @@ HTML = <<~'HTML'
     <div class="updated" id="up">Loading...</div>
     <div id="ai-summaries" style="margin-bottom:20px"></div>
     <div class="table-wrap">
-    <table><thead><tr><th>Ticker</th><th>Price</th><th>Change</th><th>5D Trend</th><th>News</th><th>Signal</th><th>EOD Forecast</th><th></th><th></th></tr></thead>
+    <table><thead><tr><th>Ticker</th><th>Price</th><th>Change</th><th>5D Trend</th><th>News</th><th>Signal</th><th>EOM Forecast</th><th></th><th></th></tr></thead>
     <tbody id="tb"></tbody></table>
     </div>
     <h2>📰 Headlines</h2>
@@ -480,7 +480,7 @@ HTML = <<~'HTML'
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px;font-size:13px" id="glossary"></div>
     </div>
     </div>
-    <div class="methodology"><h3>📊 Methodology</h3><b>Sentiment:</b> Keyword analysis of Yahoo Finance headlines.<br><br><b>Signal:</b> Price momentum + news sentiment combined.<br><br><b>Prediction:</b> End-of-day forecast using linear regression on intraday 5-min candles, extrapolated to market close.<br><br><b>Source:</b> Yahoo Finance. Refreshes every 60s.</div>
+    <div class="methodology"><h3>📊 Methodology</h3><b>Sentiment:</b> Keyword analysis of Yahoo Finance headlines.<br><br><b>Signal:</b> Price momentum + news sentiment combined.<br><br><b>Prediction:</b> End-of-month forecast using linear regression on 30-day price history, extrapolated to remaining trading days.<br><br><b>Source:</b> Yahoo Finance. Refreshes every 60s.</div>
     <footer>StockPulse AI • stockpulse.ai • Auto-refreshes every 60s</footer>
   </div>
 </div>
@@ -770,7 +770,7 @@ async function openDetail(sym){
       <div class="stat"><label>52W High</label><span>$${d.high52?d.high52.toFixed(2):'—'}</span></div>
       <div class="stat"><label>52W Low</label><span>$${d.low52?d.low52.toFixed(2):'—'}</span></div>
       <div class="stat"><label>Avg Volume</label><span>${fmtVol}</span></div>
-      <div class="stat"><label>EOD Forecast</label><span class="${d.predicted>=d.price?'pos':'neg'}">$${d.predicted||'—'}</span></div>
+      <div class="stat"><label>EOM Forecast</label><span class="${d.predicted>=d.price?'pos':'neg'}">$${d.predicted||'—'}</span></div>
       <div class="stat"><label>News Sentiment</label><span><span class="badge ${d.sentiment}">${d.sentiment} (${d.newsScore})</span></span></div>
     </div>
     <div class="chart-container"><canvas id="priceChart"></canvas></div>
