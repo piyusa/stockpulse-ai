@@ -446,15 +446,14 @@ HTML = <<~'HTML'
     <div id="tab-portfolio" style="display:none">
     <h2>💰 Portfolio Tracker</h2>
     <div style="text-align:center;margin-bottom:20px"><button onclick="connectBrokerage()" style="background:#6c63ff;color:#fff;border:none;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer">🔗 Connect Brokerage (Robinhood, etc.)</button><span id="plaid-status" style="margin-left:12px;font-size:12px;color:#888"></span></div>
-    <div id="plaid-holdings" style="margin-bottom:20px"></div>
     <div class="controls">
       <input type="text" id="pf-symbol" placeholder="Ticker" maxlength="5" style="width:80px">
-      <input type="number" id="pf-buy" placeholder="Buy price" step="0.01" style="width:110px;background:#16213e;border:1px solid #1e1e3a;color:#eee;padding:10px;border-radius:8px;font-size:14px">
-      <input type="number" id="pf-qty" placeholder="Qty" step="1" style="width:80px;background:#16213e;border:1px solid #1e1e3a;color:#eee;padding:10px;border-radius:8px;font-size:14px">
+      <input type="number" id="pf-buy" placeholder="Buy price" step="0.01" style="width:110px;background:#fff;border:1px solid #e5e7eb;color:#1a1a2e;padding:10px;border-radius:8px;font-size:14px">
+      <input type="number" id="pf-qty" placeholder="Qty" step="1" style="width:80px;background:#fff;border:1px solid #e5e7eb;color:#1a1a2e;padding:10px;border-radius:8px;font-size:14px">
       <button class="btn-add" onclick="addPortfolio()">+ Add Manually</button>
     </div>
     <div class="table-wrap">
-    <table><thead><tr><th>Ticker</th><th>Buy Price</th><th>Current</th><th>Qty</th><th>Invested</th><th>Value</th><th>P&L</th><th>% Return</th><th></th></tr></thead>
+    <table><thead><tr><th>Ticker</th><th>Source</th><th>Buy Price</th><th>Current</th><th>Qty</th><th>Invested</th><th>Value</th><th>P&L</th><th>% Return</th><th></th><th></th></tr></thead>
     <tbody id="pf-tb"></tbody>
     <tfoot id="pf-total"></tfoot></table>
     </div>
@@ -611,7 +610,7 @@ function switchTab(tab){
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
   document.querySelector(`.tab[onclick*="${tab}"]`).classList.add('active');
   ['watchlist','portfolio','alerts','learn'].forEach(t=>document.getElementById('tab-'+t).style.display=t===tab?'block':'none');
-  if(tab==='portfolio'){loadPortfolio();loadPlaidHoldings();}
+  if(tab==='portfolio'){loadPortfolio();}
   if(tab==='alerts')loadAlerts();
   if(tab==='learn')initLearn();
 }
@@ -642,18 +641,37 @@ async function deletePortfolio(idx){
 async function loadPortfolio(){
   const r=await fetch('/api/portfolio');const d=await r.json();
   if(!d.ok)return;
-  const portfolio=d.portfolio||[];
-  if(!portfolio.length){document.getElementById('pf-tb').innerHTML='<tr><td colspan="9" style="text-align:center;color:#666;padding:30px">No positions yet. Add your first stock above.</td></tr>';document.getElementById('pf-total').innerHTML='';return;}
+  const manual=d.portfolio||[];
+
+  // Fetch Plaid holdings
+  let plaidHoldings=[];
+  try{const r2=await fetch('/api/plaid/holdings');const d2=await r2.json();if(d2.ok&&d2.holdings)plaidHoldings=d2.holdings.filter(h=>h.symbol!=='N/A');}catch(e){}
+
+  if(!manual.length&&!plaidHoldings.length){document.getElementById('pf-tb').innerHTML='<tr><td colspan="11" style="text-align:center;color:#666;padding:30px">No positions yet. Add stocks or connect your brokerage.</td></tr>';document.getElementById('pf-total').innerHTML='';return;}
+
   // Get current prices
-  const symbols=[...new Set(portfolio.map(p=>p.symbol))];
+  const allSymbols=[...new Set([...manual.map(p=>p.symbol),...plaidHoldings.map(h=>h.symbol)])];
   const prices={};
   for(const s of lastStocks)prices[s.symbol]=s.price;
-  // Fetch missing prices
-  for(const sym of symbols){
-    if(!prices[sym]){try{const r2=await fetch('/api/detail?symbol='+sym);const dd=await r2.json();prices[sym]=dd.price;}catch(e){}}
-  }
+  for(const sym of allSymbols){if(!prices[sym]){try{const r3=await fetch('/api/detail?symbol='+sym);const dd=await r3.json();prices[sym]=dd.price;}catch(e){}}}
+
   let totalInvested=0,totalValue=0;
-  document.getElementById('pf-tb').innerHTML=portfolio.map((p,i)=>{
+  let rows='';
+
+  // Plaid holdings
+  plaidHoldings.forEach(h=>{
+    const cur=prices[h.symbol]||0;
+    const invested=h.costBasis||0;
+    const value=h.value||(cur*h.quantity);
+    const pl=value-invested;
+    const pct=invested>0?((pl/invested)*100).toFixed(2):0;
+    totalInvested+=invested;totalValue+=value;
+    const cls=pl>=0?'pos':'neg';
+    rows+=`<tr><td><a href="#" onclick="openDetail('${h.symbol}');return false" style="color:#4f46e5;text-decoration:none;font-weight:700">${h.symbol}</a></td><td><span style="background:#eef2ff;color:#4f46e5;padding:2px 8px;border-radius:10px;font-size:10px">Brokerage</span></td><td>$${(invested/h.quantity||0).toFixed(2)}</td><td>$${cur.toFixed(2)}</td><td>${h.quantity}</td><td>$${invested.toFixed(2)}</td><td>$${value.toFixed(2)}</td><td class="${cls}">${pl>=0?'+':''}$${pl.toFixed(2)}</td><td class="${cls}">${pct}%</td><td><button onclick="addToWatchlist('${h.symbol}')" style="background:#eef2ff;color:#4f46e5;border:1px solid #c7d2fe;padding:4px 8px;border-radius:6px;font-size:11px;cursor:pointer">+👁</button></td><td></td></tr>`;
+  });
+
+  // Manual holdings
+  manual.forEach((p,i)=>{
     const cur=prices[p.symbol]||0;
     const invested=p.buyPrice*p.quantity;
     const value=cur*p.quantity;
@@ -661,11 +679,13 @@ async function loadPortfolio(){
     const pct=invested>0?((pl/invested)*100).toFixed(2):0;
     totalInvested+=invested;totalValue+=value;
     const cls=pl>=0?'pos':'neg';
-    return`<tr><td><a href="#" onclick="openDetail('${p.symbol}');return false" style="color:#4f46e5;text-decoration:none;font-weight:700">${p.symbol}</a></td><td>$${p.buyPrice.toFixed(2)}</td><td>$${cur.toFixed(2)}</td><td>${p.quantity}</td><td>$${invested.toFixed(2)}</td><td>$${value.toFixed(2)}</td><td class="${cls}">${pl>=0?'+':''}$${pl.toFixed(2)}</td><td class="${cls}">${pct}%</td><td><button onclick="addToWatchlist('${p.symbol}')" style="background:#eef2ff;color:#4f46e5;border:1px solid #c7d2fe;padding:4px 8px;border-radius:6px;font-size:11px;cursor:pointer" title="Add to Watchlist">+👁</button></td><td><button class="btn-del" onclick="deletePortfolio(${i})">✕</button></td></tr>`;
-  }).join('');
+    rows+=`<tr><td><a href="#" onclick="openDetail('${p.symbol}');return false" style="color:#4f46e5;text-decoration:none;font-weight:700">${p.symbol}</a></td><td><span style="background:#f0fdf4;color:#059669;padding:2px 8px;border-radius:10px;font-size:10px">Manual</span></td><td>$${p.buyPrice.toFixed(2)}</td><td>$${cur.toFixed(2)}</td><td>${p.quantity}</td><td>$${invested.toFixed(2)}</td><td>$${value.toFixed(2)}</td><td class="${cls}">${pl>=0?'+':''}$${pl.toFixed(2)}</td><td class="${cls}">${pct}%</td><td><button onclick="addToWatchlist('${p.symbol}')" style="background:#eef2ff;color:#4f46e5;border:1px solid #c7d2fe;padding:4px 8px;border-radius:6px;font-size:11px;cursor:pointer">+👁</button></td><td><button class="btn-del" onclick="deletePortfolio(${i})">✕</button></td></tr>`;
+  });
+
+  document.getElementById('pf-tb').innerHTML=rows;
   const totalPL=totalValue-totalInvested;const totalPct=totalInvested>0?((totalPL/totalInvested)*100).toFixed(2):0;
   const cls=totalPL>=0?'pos':'neg';
-  document.getElementById('pf-total').innerHTML=`<tr style="font-weight:bold;border-top:2px solid #0f3460"><td>TOTAL</td><td></td><td></td><td></td><td>$${totalInvested.toFixed(2)}</td><td>$${totalValue.toFixed(2)}</td><td class="${cls}">${totalPL>=0?'+':''}$${totalPL.toFixed(2)}</td><td class="${cls}">${totalPct}%</td><td></td></tr>`;
+  document.getElementById('pf-total').innerHTML=`<tr style="font-weight:bold;border-top:2px solid #e5e7eb"><td>TOTAL</td><td></td><td></td><td></td><td></td><td>$${totalInvested.toFixed(2)}</td><td>$${totalValue.toFixed(2)}</td><td class="${cls}">${totalPL>=0?'+':''}$${totalPL.toFixed(2)}</td><td class="${cls}">${totalPct}%</td><td></td><td></td></tr>`;
 }
 
 // --- Alerts ---
@@ -787,12 +807,7 @@ async function connectBrokerage(){
     handler.open();
   }catch(e){toast('Connection error: '+e.message,'error');document.getElementById('plaid-status').textContent='Error: '+e.message;}
 }
-async function loadPlaidHoldings(){
-  const r=await fetch('/api/plaid/holdings');const d=await r.json();
-  if(!d.ok||!d.holdings){document.getElementById('plaid-holdings').innerHTML='';return;}
-  const rows=d.holdings.filter(h=>h.symbol!=='N/A').map(h=>`<tr><td><a href="#" onclick="openDetail('${h.symbol}');return false" style="color:#4f46e5;text-decoration:none;font-weight:700">${h.symbol}</a></td><td>${h.quantity}</td><td>$${(h.costBasis||0).toFixed(2)}</td><td>$${(h.value||0).toFixed(2)}</td><td><button onclick="addToWatchlist('${h.symbol}')" style="background:#eef2ff;color:#4f46e5;border:1px solid #c7d2fe;padding:4px 8px;border-radius:6px;font-size:11px;cursor:pointer" title="Add to Watchlist">+👁</button></td></tr>`).join('');
-  document.getElementById('plaid-holdings').innerHTML=`<div class="table-wrap"><table><thead><tr><th style="text-align:left">Ticker</th><th>Shares</th><th>Cost Basis</th><th>Value</th></tr></thead><tbody>${rows}</tbody></table></div><p style="text-align:center;font-size:11px;color:#556">Live holdings from connected brokerage</p>`;
-}
+async function loadPlaidHoldings(){}
 
 function closeDetail(){document.getElementById('modal').style.display='none';}
 async function openDetail(sym){
