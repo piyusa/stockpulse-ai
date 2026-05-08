@@ -615,16 +615,23 @@ async function loadAlerts(){
 
 // --- Plaid Brokerage ---
 async function setAlertFromModal(sym){
+  const btn=document.querySelector('[onclick*="setAlertFromModal"]');
   const dir=document.getElementById('modal-al-dir').value;
   const target=parseFloat(document.getElementById('modal-al-target').value);
   if(!target){toast('Enter a target price','error');return;}
+  btn.textContent='Setting...';btn.style.background='#888';btn.disabled=true;
   const r=await fetch('/api/alerts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({symbol:sym,direction:dir,target:target})});
   const d=await r.json();
   if(d.ok){
+    btn.textContent='✓ Alert Set!';btn.style.background='linear-gradient(135deg,#00e676,#00bfa5)';
     toast(`✓ Alert set: ${sym} ${dir} $${target}`);
     loadAlerts();
     showExistingAlerts(sym);
-  } else toast(d.error||'Failed','error');
+    setTimeout(()=>{btn.textContent='Set Alert';btn.style.background='linear-gradient(135deg,#ffd600,#ff9100)';btn.disabled=false;},2000);
+  } else {
+    btn.textContent='Set Alert';btn.style.background='linear-gradient(135deg,#ffd600,#ff9100)';btn.disabled=false;
+    toast(d.error||'Failed','error');
+  }
 }
 async function showExistingAlerts(sym){
   const r=await fetch('/api/alerts');const d=await r.json();
