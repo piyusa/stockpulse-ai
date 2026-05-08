@@ -47,6 +47,27 @@ def analyze_sentiment(headlines)
   { score: score, label: label }
 end
 
+def generate_summary(symbol, price, prev_close, trend, sentiment, headlines)
+  change_pct = prev_close && prev_close > 0 ? ((price - prev_close) / prev_close * 100).round(1) : 0
+  direction = change_pct >= 0 ? "up" : "down"
+  # Extract key themes from headlines
+  themes = []
+  headlines.first(5).each do |h|
+    hl = h.downcase
+    themes << "AI" if hl.match?(/\bai\b|artificial intelligence|machine learning/)
+    themes << "earnings" if hl.match?(/earnings|revenue|profit|beat|miss/)
+    themes << "partnership" if hl.match?(/partner|deal|agreement|announce/)
+    themes << "growth" if hl.match?(/growth|expand|surge|soar|boom/)
+    themes << "layoffs" if hl.match?(/layoff|cut|slash|restructur/)
+    themes << "upgrade" if hl.match?(/upgrade|outperform|buy rating|price target/)
+    themes << "downgrade" if hl.match?(/downgrade|underperform|sell rating/)
+  end
+  themes = themes.uniq.first(2)
+  theme_str = themes.empty? ? "" : " amid #{themes.join(' & ')} news"
+  trend_str = trend.abs > 3 ? " (#{trend > 0 ? '+' : ''}#{trend.round(1)}% over 5 days)" : ""
+  "#{symbol} is #{direction} #{change_pct.abs}% today#{trend_str}#{theme_str}. Sentiment: #{sentiment}."
+end
+
 def fetch_news(symbol)
   uri = URI("https://query2.finance.yahoo.com/v1/finance/search?q=#{symbol}&newsCount=8&quotesCount=0")
   req = Net::HTTP::Get.new(uri)
@@ -105,12 +126,15 @@ def fetch_stocks(symbols)
       combined = price_sent + news_val
       overall = combined > 0 ? 'bullish' : combined < 0 ? 'bearish' : 'neutral'
 
+      summary = generate_summary(sym, price, prev_close, trend, overall, headlines)
+
       { symbol: sym, price: price, prevClose: prev_close, trend: trend.round(2),
         predicted: predicted, newsSentiment: news_sentiment[:label],
-        newsScore: news_sentiment[:score], headlines: headlines[0..2], overall: overall }
+        newsScore: news_sentiment[:score], headlines: headlines[0..2], overall: overall,
+        summary: summary }
     rescue
       { symbol: sym, price: nil, prevClose: nil, trend: 0, predicted: nil,
-        newsSentiment: 'neutral', newsScore: 0, headlines: [], overall: 'neutral' }
+        newsSentiment: 'neutral', newsScore: 0, headlines: [], overall: 'neutral', summary: '' }
     end
   end
 end
@@ -242,10 +266,18 @@ HTML = <<~'HTML'
   .status{display:inline-block;padding:4px 12px;border-radius:20px;font-size:12px;margin-top:10px}
   .status.live{background:#00e67622;color:#00e676;border:1px solid #00e67644}
   .controls{display:flex;justify-content:center;gap:10px;margin-bottom:20px;flex-wrap:wrap}
-  .controls input{background:#16213e;border:1px solid #1e1e3a;color:#eee;padding:10px 14px;border-radius:8px;font-size:14px;width:140px;text-transform:uppercase}
+  .controls input,.controls select{background:#16213e;border:1px solid #1e1e3a;color:#eee;padding:10px 14px;border-radius:8px;font-size:14px;width:140px;text-transform:uppercase}
   .controls input::placeholder{color:#556;text-transform:none}
   .controls button{padding:10px 18px;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer}
   .btn-add{background:#00e676;color:#000}.btn-add:hover{background:#00c853}
+  .tabs{display:flex;justify-content:center;gap:8px;margin-bottom:20px}
+  .tab{background:#16213e;border:1px solid #1e1e3a;color:#888;padding:10px 20px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer}
+  .tab.active{background:#00d4ff22;color:#00d4ff;border-color:#00d4ff44}
+  .tab:hover{color:#fff}
+  .summary-box{background:#16213e;border:1px solid #1e1e3a;border-radius:10px;padding:16px;margin-bottom:20px}
+  .summary-box h3{margin:0 0 10px;color:#00d4ff;font-size:14px}
+  .summary-item{padding:6px 0;font-size:13px;color:#bbc;border-bottom:1px solid #0f0f1a}
+  .summary-item:last-child{border:none}
   .disclaimer{background:#ff525211;border:1px solid #ff525233;border-radius:8px;padding:12px 16px;margin-bottom:24px;font-size:12px;color:#ff8a80;text-align:center}
   .updated{text-align:center;color:#888;margin-bottom:20px;font-size:13px}
   .table-wrap{overflow-x:auto;border-radius:12px;border:1px solid #1e1e3a;margin-bottom:30px}
@@ -322,18 +354,49 @@ HTML = <<~'HTML'
       <p>Your Personal Watchlist • Real-Time Prices • Sentiment • Prediction</p>
       <div class="status live" id="status">● LIVE</div>
     </header>
+    <div class="tabs"><button class="tab active" onclick="switchTab('watchlist')">📊 Watchlist</button><button class="tab" onclick="switchTab('portfolio')">💰 Portfolio</button><button class="tab" onclick="switchTab('alerts')">🔔 Alerts</button></div>
+    <div id="tab-watchlist">
     <div class="controls">
       <input type="text" id="symbolInput" placeholder="e.g. TSLA" maxlength="5">
       <button class="btn-add" onclick="addStock()">+ Add Stock</button>
     </div>
     <div class="disclaimer">⚠️ For informational purposes only. Not financial advice.</div>
     <div class="updated" id="up">Loading...</div>
+    <div id="ai-summaries" style="margin-bottom:20px"></div>
     <div class="table-wrap">
     <table><thead><tr><th>Ticker</th><th>Price</th><th>Change</th><th>5D Trend</th><th>News</th><th>Signal</th><th>EOD Forecast</th><th></th><th></th></tr></thead>
     <tbody id="tb"></tbody></table>
     </div>
     <h2>📰 Headlines</h2>
     <div class="news" id="news"></div>
+    </div>
+    <div id="tab-portfolio" style="display:none">
+    <h2>💰 Portfolio Tracker</h2>
+    <div class="controls">
+      <input type="text" id="pf-symbol" placeholder="Ticker" maxlength="5" style="width:80px">
+      <input type="number" id="pf-buy" placeholder="Buy price" step="0.01" style="width:110px;background:#16213e;border:1px solid #1e1e3a;color:#eee;padding:10px;border-radius:8px;font-size:14px">
+      <input type="number" id="pf-qty" placeholder="Qty" step="1" style="width:80px;background:#16213e;border:1px solid #1e1e3a;color:#eee;padding:10px;border-radius:8px;font-size:14px">
+      <button class="btn-add" onclick="addPortfolio()">+ Add Position</button>
+    </div>
+    <div class="table-wrap">
+    <table><thead><tr><th>Ticker</th><th>Buy Price</th><th>Current</th><th>Qty</th><th>Invested</th><th>Value</th><th>P&L</th><th>% Return</th><th></th></tr></thead>
+    <tbody id="pf-tb"></tbody>
+    <tfoot id="pf-total"></tfoot></table>
+    </div>
+    </div>
+    <div id="tab-alerts" style="display:none">
+    <h2>🔔 Price Alerts</h2>
+    <div class="controls">
+      <input type="text" id="al-symbol" placeholder="Ticker" maxlength="5" style="width:80px">
+      <select id="al-dir" style="background:#16213e;border:1px solid #1e1e3a;color:#eee;padding:10px;border-radius:8px;font-size:14px"><option value="above">Above</option><option value="below">Below</option></select>
+      <input type="number" id="al-target" placeholder="Target $" step="0.01" style="width:110px;background:#16213e;border:1px solid #1e1e3a;color:#eee;padding:10px;border-radius:8px;font-size:14px">
+      <button class="btn-add" onclick="addAlert()">+ Add Alert</button>
+    </div>
+    <div class="table-wrap">
+    <table><thead><tr><th>Ticker</th><th>Condition</th><th>Target</th><th>Status</th><th></th></tr></thead>
+    <tbody id="al-tb"></tbody></table>
+    </div>
+    </div>
     <div class="methodology"><h3>📊 Methodology</h3><b>Sentiment:</b> Keyword analysis of Yahoo Finance headlines.<br><br><b>Signal:</b> Price momentum + news sentiment combined.<br><br><b>Prediction:</b> End-of-day forecast using linear regression on intraday 5-min candles, extrapolated to market close.<br><br><b>Source:</b> Yahoo Finance. Refreshes every 60s.</div>
     <footer>StockPulse AI • stockpulse.ai • Auto-refreshes every 60s</footer>
   </div>
@@ -411,10 +474,104 @@ async function update(){
     }).join('');
     document.getElementById('news').innerHTML=stocks.filter(s=>s.headlines&&s.headlines.length).map(s=>`<div class="card"><h3>${s.symbol} <span class="badge ${s.newsSentiment}">${s.newsSentiment}</span></h3><ul>${s.headlines.map(h=>`<li>${h}</li>`).join('')}</ul></div>`).join('');
     document.getElementById('up').textContent=`${stocks.length} stocks • Updated: ${new Date().toLocaleString()} • Refreshes every 60s`;
+    renderSummaries(stocks);
+    loadAlerts();
   }catch(e){}
 }
 checkSession();
 setInterval(()=>{if(document.getElementById('app-view').style.display!=='none')update();},60000);
+
+// --- Tabs ---
+function switchTab(tab){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.querySelector(`.tab[onclick*="${tab}"]`).classList.add('active');
+  ['watchlist','portfolio','alerts'].forEach(t=>document.getElementById('tab-'+t).style.display=t===tab?'block':'none');
+  if(tab==='portfolio')loadPortfolio();
+  if(tab==='alerts')loadAlerts();
+}
+
+// --- AI Summary ---
+let lastStocks=[];
+function renderSummaries(stocks){
+  lastStocks=stocks;
+  const box=document.getElementById('ai-summaries');
+  const items=stocks.filter(s=>s.summary).map(s=>`<div class="summary-item"><strong>${s.symbol}:</strong> ${s.summary}</div>`).join('');
+  box.innerHTML=items?`<div class="summary-box"><h3>🤖 AI Market Summary</h3>${items}</div>`:'';
+}
+
+// --- Portfolio ---
+async function addPortfolio(){
+  const sym=document.getElementById('pf-symbol').value.trim().toUpperCase();
+  const buy=parseFloat(document.getElementById('pf-buy').value);
+  const qty=parseFloat(document.getElementById('pf-qty').value);
+  if(!sym||!buy||!qty){toast('Fill all fields','error');return;}
+  const r=await fetch('/api/portfolio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({symbol:sym,buyPrice:buy,quantity:qty})});
+  const d=await r.json();
+  if(d.ok){toast(`${sym} position added`);document.getElementById('pf-symbol').value='';document.getElementById('pf-buy').value='';document.getElementById('pf-qty').value='';loadPortfolio();}
+  else toast(d.error||'Failed','error');
+}
+async function deletePortfolio(idx){
+  await fetch('/api/portfolio/delete?index='+idx);loadPortfolio();
+}
+async function loadPortfolio(){
+  const r=await fetch('/api/portfolio');const d=await r.json();
+  if(!d.ok)return;
+  const portfolio=d.portfolio||[];
+  if(!portfolio.length){document.getElementById('pf-tb').innerHTML='<tr><td colspan="9" style="text-align:center;color:#666;padding:30px">No positions yet. Add your first stock above.</td></tr>';document.getElementById('pf-total').innerHTML='';return;}
+  // Get current prices
+  const symbols=[...new Set(portfolio.map(p=>p.symbol))];
+  const prices={};
+  for(const s of lastStocks)prices[s.symbol]=s.price;
+  // Fetch missing prices
+  for(const sym of symbols){
+    if(!prices[sym]){try{const r2=await fetch('/api/detail?symbol='+sym);const dd=await r2.json();prices[sym]=dd.price;}catch(e){}}
+  }
+  let totalInvested=0,totalValue=0;
+  document.getElementById('pf-tb').innerHTML=portfolio.map((p,i)=>{
+    const cur=prices[p.symbol]||0;
+    const invested=p.buyPrice*p.quantity;
+    const value=cur*p.quantity;
+    const pl=value-invested;
+    const pct=invested>0?((pl/invested)*100).toFixed(2):0;
+    totalInvested+=invested;totalValue+=value;
+    const cls=pl>=0?'pos':'neg';
+    return`<tr><td>${p.symbol}</td><td>$${p.buyPrice.toFixed(2)}</td><td>$${cur.toFixed(2)}</td><td>${p.quantity}</td><td>$${invested.toFixed(2)}</td><td>$${value.toFixed(2)}</td><td class="${cls}">${pl>=0?'+':''}$${pl.toFixed(2)}</td><td class="${cls}">${pct}%</td><td><button class="btn-del" onclick="deletePortfolio(${i})">✕</button></td></tr>`;
+  }).join('');
+  const totalPL=totalValue-totalInvested;const totalPct=totalInvested>0?((totalPL/totalInvested)*100).toFixed(2):0;
+  const cls=totalPL>=0?'pos':'neg';
+  document.getElementById('pf-total').innerHTML=`<tr style="font-weight:bold;border-top:2px solid #0f3460"><td>TOTAL</td><td></td><td></td><td></td><td>$${totalInvested.toFixed(2)}</td><td>$${totalValue.toFixed(2)}</td><td class="${cls}">${totalPL>=0?'+':''}$${totalPL.toFixed(2)}</td><td class="${cls}">${totalPct}%</td><td></td></tr>`;
+}
+
+// --- Alerts ---
+async function addAlert(){
+  const sym=document.getElementById('al-symbol').value.trim().toUpperCase();
+  const dir=document.getElementById('al-dir').value;
+  const target=parseFloat(document.getElementById('al-target').value);
+  if(!sym||!target){toast('Fill all fields','error');return;}
+  const r=await fetch('/api/alerts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({symbol:sym,direction:dir,target:target})});
+  const d=await r.json();
+  if(d.ok){toast(`Alert set for ${sym}`);document.getElementById('al-symbol').value='';document.getElementById('al-target').value='';loadAlerts();}
+  else toast(d.error||'Failed','error');
+}
+async function deleteAlert(idx){
+  await fetch('/api/alerts/delete?index='+idx);loadAlerts();
+}
+async function loadAlerts(){
+  const r=await fetch('/api/alerts');const d=await r.json();
+  if(!d.ok)return;
+  const alerts=d.alerts||[];
+  if(!alerts.length){document.getElementById('al-tb').innerHTML='<tr><td colspan="5" style="text-align:center;color:#666;padding:30px">No alerts set. Add one above.</td></tr>';return;}
+  const prices={};for(const s of lastStocks)prices[s.symbol]=s.price;
+  document.getElementById('al-tb').innerHTML=alerts.map((a,i)=>{
+    const cur=prices[a.symbol];
+    let status='⏳ Waiting';
+    if(cur){
+      const triggered=(a.direction==='above'&&cur>=a.target)||(a.direction==='below'&&cur<=a.target);
+      if(triggered){status='🚨 TRIGGERED';if(Notification.permission==='granted')new Notification('StockPulse Alert',{body:`${a.symbol} is ${a.direction} $${a.target} (now $${cur.toFixed(2)})`});}
+    }
+    return`<tr><td>${a.symbol}</td><td>${a.direction==='above'?'≥':'≤'}</td><td>$${a.target.toFixed(2)}</td><td>${status}</td><td><button class="btn-del" onclick="deleteAlert(${i})">✕</button></td></tr>`;
+  }).join('');
+}
 
 function closeDetail(){document.getElementById('modal').style.display='none';}
 async function openDetail(sym){
@@ -596,6 +753,66 @@ loop do
         detail = fetch_stock_detail(sym)
         data = JSON.generate(detail)
         client.print "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: #{data.bytesize}\r\nConnection: close\r\n\r\n#{data}"
+      else
+        json_response(client, { error: 'Not authenticated' }, '401 Unauthorized')
+      end
+
+    when path == '/api/portfolio' && req[:method] == 'GET'
+      if user && $users[user]
+        portfolio = $users[user]['portfolio'] || []
+        json_response(client, { ok: true, portfolio: portfolio })
+      else
+        json_response(client, { error: 'Not authenticated' }, '401 Unauthorized')
+      end
+
+    when path == '/api/portfolio' && req[:method] == 'POST'
+      if user && $users[user]
+        data = JSON.parse(req[:body])
+        $users[user]['portfolio'] ||= []
+        $users[user]['portfolio'] << { 'symbol' => data['symbol'].upcase, 'buyPrice' => data['buyPrice'].to_f, 'quantity' => data['quantity'].to_f, 'date' => data['date'] || Time.now.strftime('%Y-%m-%d') }
+        save_users($users)
+        json_response(client, { ok: true })
+      else
+        json_response(client, { error: 'Not authenticated' }, '401 Unauthorized')
+      end
+
+    when path =~ /^\/api\/portfolio\/delete\?index=(\d+)/
+      idx = $1.to_i
+      if user && $users[user]
+        $users[user]['portfolio'] ||= []
+        $users[user]['portfolio'].delete_at(idx)
+        save_users($users)
+        json_response(client, { ok: true })
+      else
+        json_response(client, { error: 'Not authenticated' }, '401 Unauthorized')
+      end
+
+    when path == '/api/alerts' && req[:method] == 'GET'
+      if user && $users[user]
+        alerts = $users[user]['alerts'] || []
+        json_response(client, { ok: true, alerts: alerts })
+      else
+        json_response(client, { error: 'Not authenticated' }, '401 Unauthorized')
+      end
+
+    when path == '/api/alerts' && req[:method] == 'POST'
+      if user && $users[user]
+        data = JSON.parse(req[:body])
+        $users[user]['alerts'] ||= []
+        $users[user]['alerts'] << { 'symbol' => data['symbol'].upcase, 'target' => data['target'].to_f, 'direction' => data['direction'] || 'above' }
+        save_users($users)
+        json_response(client, { ok: true })
+      else
+        json_response(client, { error: 'Not authenticated' }, '401 Unauthorized')
+      end
+
+    when path =~ /^\/api\/alerts\/delete\?index=(\d+)/
+      idx = $1.to_i
+      if user && $users[user]
+        $users[user]['alerts'] ||= []
+        $users[user]['alerts'].delete_at(idx)
+        save_users($users)
+        json_response(client, { ok: true })
       else
         json_response(client, { error: 'Not authenticated' }, '401 Unauthorized')
       end
