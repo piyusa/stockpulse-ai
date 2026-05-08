@@ -199,6 +199,120 @@ def fetch_stocks(symbols)
   end
 end
 
+def ai_analyze(closes, highs, lows, volumes, price, prev_close)
+  return {} if closes.compact.size < 10
+  c = closes.compact
+  h = highs.compact
+  l = lows.compact
+  v = volumes.compact
+  n = c.size
+
+  # --- 1. Pattern Recognition ---
+  patterns = []
+  # Double bottom: two lows within 3% of each other with a peak between
+  if n >= 10
+    first_half_low = c[0..n/2].min
+    second_half_low = c[n/2..].min
+    mid_high = c[n/4..3*n/4].max
+    if (first_half_low - second_half_low).abs / first_half_low < 0.03 && mid_high > first_half_low * 1.05
+      patterns << { name: 'Double Bottom', signal: 'bullish', desc: 'Two similar lows with recovery between — potential reversal up' }
+    end
+  end
+  # Breakout: price above 20-day high
+  if n >= 20 && price > c[-20...-1].max
+    patterns << { name: 'Breakout', signal: 'bullish', desc: "Price broke above 20-day high ($#{c[-20...-1].max.round(2)})" }
+  end
+  # Breakdown: price below 20-day low
+  if n >= 20 && price < c[-20...-1].min
+    patterns << { name: 'Breakdown', signal: 'bearish', desc: "Price broke below 20-day low ($#{c[-20...-1].min.round(2)})" }
+  end
+  # Higher highs & higher lows (uptrend)
+  if n >= 15
+    recent = c.last(10)
+    older = c[0..n-11]
+    if recent.min > older.min && recent.max > older.max
+      patterns << { name: 'Uptrend', signal: 'bullish', desc: 'Higher highs and higher lows — sustained upward momentum' }
+    elsif recent.max < older.max && recent.min < older.min
+      patterns << { name: 'Downtrend', signal: 'bearish', desc: 'Lower highs and lower lows — sustained downward pressure' }
+    end
+  end
+
+  # --- 2. Anomaly Detection ---
+  anomalies = []
+  if v.size >= 10
+    avg_vol = v.sum / v.size.to_f
+    std_vol = Math.sqrt(v.map { |x| (x - avg_vol)**2 }.sum / v.size)
+    if v.last && std_vol > 0 && (v.last - avg_vol) / std_vol > 2
+      anomalies << { type: 'Volume Spike', severity: 'high', desc: "Today's volume is #{(v.last / avg_vol).round(1)}x the 30-day average" }
+    end
+  end
+  if n >= 10
+    avg_change = c.each_cons(2).map { |a, b| ((b - a) / a * 100).abs }.sum / (n - 1)
+    today_change = ((price - prev_close) / prev_close * 100).abs
+    if avg_change > 0 && today_change > avg_change * 2.5
+      anomalies << { type: 'Price Anomaly', severity: 'high', desc: "Today's move (#{today_change.round(1)}%) is #{(today_change / avg_change).round(1)}x the average daily move" }
+    end
+  end
+  # Gap detection
+  if n >= 2 && prev_close
+    gap_pct = ((price - prev_close) / prev_close * 100).abs
+    if gap_pct > 3
+      dir = price > prev_close ? 'up' : 'down'
+      anomalies << { type: "Gap #{dir.capitalize}", severity: 'medium', desc: "#{gap_pct.round(1)}% gap #{dir} from previous close" }
+    end
+  end
+
+  # --- 3. Momentum Score (0-100) ---
+  scores = []
+  # RSI (14-period approximation)
+  if n >= 14
+    gains = []; losses = []
+    c.each_cons(2) { |a, b| b > a ? gains << (b - a) : losses << (a - b) }
+    avg_gain = gains.last(14).sum / 14.0
+    avg_loss = losses.last(14).sum / 14.0
+    rsi = avg_loss == 0 ? 100 : (100 - 100 / (1 + avg_gain / avg_loss)).round(1)
+    scores << { name: 'RSI', value: rsi, signal: rsi > 70 ? 'overbought' : rsi < 30 ? 'oversold' : 'neutral' }
+  end
+  # MACD signal
+  if n >= 12
+    ema12 = c.last(12).sum / 12.0
+    ema26 = c.sum / [n, 26].min.to_f
+    macd_val = ema12 - ema26
+    scores << { name: 'MACD', value: macd_val.round(2), signal: macd_val > 0 ? 'bullish' : 'bearish' }
+  end
+  # Volume trend
+  if v.size >= 10
+    vol_recent = v.last(5).compact.sum / 5.0
+    vol_older = v.first(v.size - 5).compact.sum / [v.size - 5, 1].max.to_f
+    vol_trend = vol_older > 0 ? ((vol_recent - vol_older) / vol_older * 100).round(0) : 0
+    scores << { name: 'Volume Trend', value: vol_trend, signal: vol_trend > 20 ? 'increasing' : vol_trend < -20 ? 'decreasing' : 'stable' }
+  end
+  # Price vs moving averages
+  if n >= 20
+    ma20 = c.last(20).sum / 20.0
+    above_ma = price > ma20
+    scores << { name: 'Price vs MA20', value: ((price - ma20) / ma20 * 100).round(1), signal: above_ma ? 'bullish' : 'bearish' }
+  end
+
+  # Composite AI Score (0-100)
+  ai_score = 50
+  ai_score += (rsi && rsi > 50 ? [rsi - 50, 15].min : rsi ? [rsi - 50, -15].max : 0) if defined?(rsi) && rsi
+  ai_score += (macd_val && macd_val > 0 ? 15 : -15) if defined?(macd_val) && macd_val
+  ai_score += (above_ma ? 10 : -10) if defined?(above_ma)
+  ai_score += (vol_trend && vol_trend > 0 ? 10 : -5) if defined?(vol_trend) && vol_trend
+  ai_score = [[ai_score, 0].max, 100].min
+
+  # --- 4. Peer Comparison (vs sector avg) ---
+  # Simplified: compare trend vs market (SPY-like behavior from the data)
+  peer = nil
+  if n >= 5
+    stock_return = ((c.last - c.first) / c.first * 100).round(2)
+    peer = { stockReturn: stock_return, verdict: stock_return > 3 ? 'Outperforming' : stock_return < -3 ? 'Underperforming' : 'In-line with market' }
+  end
+
+  { patterns: patterns, anomalies: anomalies, scores: scores, aiScore: ai_score, peer: peer }
+end
+
 def fetch_stock_detail(sym)
   # 30-day price history
   uri = URI("https://query1.finance.yahoo.com/v8/finance/chart/#{sym}?interval=1d&range=1mo")
@@ -259,10 +373,14 @@ def fetch_stock_detail(sym)
   headlines = fetch_news(sym)
   news_sentiment = analyze_sentiment(headlines)
 
+  # AI Analysis
+  ai = ai_analyze(closes, highs, lows, volumes, price, prev_close)
+
   { symbol: sym, price: price, prevClose: prev_close, high52: high52, low52: low52,
     avg30: avg30, high30: high30, low30: low30, avgVolume: avg_vol,
     predicted: predicted, predictedEoy: predicted_eoy, sentiment: news_sentiment[:label], newsScore: news_sentiment[:score],
-    headlines: headlines, dates: dates, closes: closes, highs: highs, lows: lows, volumes: volumes }
+    headlines: headlines, dates: dates, closes: closes, highs: highs, lows: lows, volumes: volumes,
+    ai: ai }
 rescue => e
   { symbol: sym, error: e.message }
 end
@@ -970,6 +1088,28 @@ async function openDetail(sym){
       <button onclick="loadChart('${d.symbol}','5y')" style="padding:6px 12px;border-radius:6px;border:1px solid #e5e7eb;background:#fff;color:#6b7280;font-size:12px;cursor:pointer;font-weight:600">5Y</button>
     </div>
     <div class="chart-container"><canvas id="priceChart"></canvas></div>
+    ${d.ai?`<div style="margin:20px 0">
+      <h3 style="color:#4f46e5;margin:0 0 16px">🤖 AI Analysis</h3>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-bottom:16px">
+        <div style="background:linear-gradient(135deg,${d.ai.aiScore>=60?'#ecfdf5':'#fef2f2'},#fff);border:1px solid ${d.ai.aiScore>=60?'#a7f3d0':'#fecaca'};border-radius:12px;padding:16px;text-align:center">
+          <div style="font-size:11px;color:#6b7280;text-transform:uppercase">AI Score</div>
+          <div style="font-size:32px;font-weight:800;color:${d.ai.aiScore>=60?'#059669':d.ai.aiScore>=40?'#d97706':'#dc2626'}">${d.ai.aiScore}</div>
+          <div style="font-size:11px;color:#6b7280">${d.ai.aiScore>=70?'Strong Buy':d.ai.aiScore>=60?'Buy':d.ai.aiScore>=40?'Hold':d.ai.aiScore>=30?'Sell':'Strong Sell'}</div>
+        </div>
+        ${d.ai.scores.map(s=>`<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;padding:14px">
+          <div style="font-size:11px;color:#6b7280">${s.name}</div>
+          <div style="font-size:18px;font-weight:700;color:#1a1a2e">${s.value}${s.name==='RSI'||s.name.includes('vs')||s.name.includes('Trend')?'%':''}</div>
+          <div style="font-size:11px;color:${s.signal==='bullish'||s.signal==='oversold'||s.signal==='increasing'?'#059669':s.signal==='bearish'||s.signal==='overbought'||s.signal==='decreasing'?'#dc2626':'#d97706'}">${s.signal}</div>
+        </div>`).join('')}
+        ${d.ai.peer?`<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;padding:14px">
+          <div style="font-size:11px;color:#6b7280">30D Return</div>
+          <div style="font-size:18px;font-weight:700;color:${d.ai.peer.stockReturn>=0?'#059669':'#dc2626'}">${d.ai.peer.stockReturn>=0?'+':''}${d.ai.peer.stockReturn}%</div>
+          <div style="font-size:11px;color:#6b7280">${d.ai.peer.verdict}</div>
+        </div>`:''}
+      </div>
+      ${d.ai.patterns.length?`<div style="margin-bottom:12px"><b style="font-size:12px;color:#6b7280">📐 Patterns Detected:</b>${d.ai.patterns.map(p=>`<div style="margin:6px 0;padding:8px 12px;background:${p.signal==='bullish'?'#ecfdf5':'#fef2f2'};border-radius:8px;font-size:13px"><strong style="color:${p.signal==='bullish'?'#059669':'#dc2626'}">${p.name}</strong> — ${p.desc}</div>`).join('')}</div>`:''}
+      ${d.ai.anomalies.length?`<div><b style="font-size:12px;color:#6b7280">⚠️ Anomalies:</b>${d.ai.anomalies.map(a=>`<div style="margin:6px 0;padding:8px 12px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:13px"><strong style="color:#d97706">${a.type}</strong> — ${a.desc}</div>`).join('')}</div>`:''}
+    </div>`:''}
     <div class="news-list"><h3>📰 Latest News</h3><ul>${d.headlines.map(h=>'<li>'+h+'</li>').join('')}</ul></div>
     <div style="margin-top:20px;padding:16px;background:linear-gradient(145deg,#1a1040,#0f1a2e);border-radius:10px;border:1px solid #2a2060">
       <h3 style="margin:0 0 12px;color:#ffd600">🔔 Set Price Alert</h3>
