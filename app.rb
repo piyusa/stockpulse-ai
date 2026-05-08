@@ -16,22 +16,15 @@ PLAID_SECRET = ENV.fetch('PLAID_SECRET', 'd317e1fe2ddfb2e89bc603a0f8d1f0')
 PLAID_ENV = ENV.fetch('PLAID_ENV', 'production')
 PLAID_HOST = 'https://production.plaid.com'
 
-CLAUDE_API_KEY = ENV.fetch('CLAUDE_API_KEY', '')
+GEMINI_API_KEY = ENV.fetch('GEMINI_API_KEY', 'AIzaSyAha3QSXfEUIgryJpBHdL1e-doCo10iF5g')
 
-def claude_ask(prompt, max_tokens = 300)
-  uri = URI('https://api.anthropic.com/v1/messages')
-  req = Net::HTTP::Post.new(uri)
-  req['Content-Type'] = 'application/json'
-  req['x-api-key'] = CLAUDE_API_KEY
-  req['anthropic-version'] = '2023-06-01'
-  req.body = JSON.generate({
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: max_tokens,
-    messages: [{ role: 'user', content: prompt }]
-  })
+def ai_ask(prompt, max_tokens = 300)
+  uri = URI("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=#{GEMINI_API_KEY}")
+  req = Net::HTTP::Post.new(uri, 'Content-Type' => 'application/json')
+  req.body = JSON.generate({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: max_tokens } })
   res = Net::HTTP.start(uri.host, uri.port, use_ssl: true, open_timeout: 15, read_timeout: 30) { |h| h.request(req) }
   data = JSON.parse(res.body)
-  data['content']&.first&.dig('text') || data['error']&.dig('message') || 'No response'
+  data.dig('candidates', 0, 'content', 'parts', 0, 'text') || data['error']&.dig('message') || 'No response'
 rescue => e
   "Error: #{e.message}"
 end
@@ -1538,7 +1531,7 @@ loop do
       if user
         headlines = fetch_news(sym)
         prompt = "You are a stock market analyst. Based on these recent headlines about #{sym}, provide a 2-3 sentence nuanced analysis of what's driving the stock and any risks. Be specific and actionable.\n\nHeadlines:\n#{headlines.first(8).map { |h| "- #{h}" }.join("\n")}\n\nAnalysis:"
-        analysis = claude_ask(prompt, 200)
+        analysis = ai_ask(prompt, 200)
         json_response(client, { ok: true, analysis: analysis })
       else
         json_response(client, { error: 'Not authenticated' }, '401 Unauthorized')
@@ -1549,7 +1542,7 @@ loop do
       if user
         headlines = fetch_news(sym)
         prompt = "You are a financial analyst. Based on recent news about #{sym}, summarize the latest earnings performance and outlook in 3-4 sentences. Include: revenue/EPS beat or miss, key growth drivers, management guidance, and whether the signal is bullish or bearish. If no earnings data is available, say so.\n\nRecent headlines:\n#{headlines.first(8).map { |h| "- #{h}" }.join("\n")}\n\nEarnings Summary:"
-        summary = claude_ask(prompt, 250)
+        summary = ai_ask(prompt, 250)
         json_response(client, { ok: true, summary: summary })
       else
         json_response(client, { error: 'Not authenticated' }, '401 Unauthorized')
@@ -1562,7 +1555,7 @@ loop do
         # Get context about user's watchlist
         stocks_info = ($users[user]['stocks'] || []).first(5).join(', ')
         prompt = "You are StockPulse AI, a helpful stock market assistant. You provide balanced, educational analysis. Never give definitive buy/sell advice — instead present pros, cons, and factors to consider. Keep responses concise (3-5 sentences).\n\nUser's watchlist includes: #{stocks_info}\n\nUser question: #{question}\n\nResponse:"
-        answer = claude_ask(prompt, 350)
+        answer = ai_ask(prompt, 350)
         json_response(client, { ok: true, answer: answer })
       else
         json_response(client, { error: 'Not authenticated' }, '401 Unauthorized')
