@@ -19,7 +19,7 @@ PLAID_HOST = 'https://production.plaid.com'
 GEMINI_API_KEY = ENV.fetch('GEMINI_API_KEY', 'AIzaSyAha3QSXfEUIgryJpBHdL1e-doCo10iF5g')
 
 def ai_ask(prompt, max_tokens = 300)
-  uri = URI("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=#{GEMINI_API_KEY}")
+  uri = URI("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=#{GEMINI_API_KEY}")
   req = Net::HTTP::Post.new(uri, 'Content-Type' => 'application/json')
   req.body = JSON.generate({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: max_tokens } })
   res = Net::HTTP.start(uri.host, uri.port, use_ssl: true, open_timeout: 15, read_timeout: 30) { |h| h.request(req) }
