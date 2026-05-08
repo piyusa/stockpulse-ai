@@ -900,7 +900,21 @@ loop do
 
     when path == '/api/stocks'
       if user && $users[user]
-        data = JSON.generate(fetch_stocks($users[user]['stocks']))
+        stocks = fetch_stocks($users[user]['stocks'])
+        # Check alerts and send Mac notifications
+        alerts = $users[user]['alerts'] || []
+        alerts.each do |a|
+          s = stocks.find { |st| st[:symbol] == a['symbol'] }
+          next unless s && s[:price]
+          triggered = (a['direction'] == 'above' && s[:price] >= a['target']) ||
+                      (a['direction'] == 'below' && s[:price] <= a['target'])
+          if triggered && !a['notified']
+            system("osascript -e 'display notification \"#{a['symbol']} is #{a['direction']} $#{a['target']} (now $#{s[:price]})\" with title \"🔔 StockPulse Alert\" sound name \"Glass\"' &")
+            a['notified'] = true
+            save_users($users)
+          end
+        end
+        data = JSON.generate(stocks)
         client.print "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: #{data.bytesize}\r\nConnection: close\r\n\r\n#{data}"
       else
         json_response(client, { error: 'Not authenticated' }, '401 Unauthorized')
