@@ -278,83 +278,88 @@ HTML = <<~'HTML'
 <script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
 <style>
   *{box-sizing:border-box}
-  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0f0f1a;color:#e8e8e8;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0a0a1a;color:#e8e8e8;margin:0;padding:0;background-image:radial-gradient(ellipse at top,#1a1040 0%,#0a0a1a 60%)}
   .container{max-width:1200px;margin:0 auto;padding:20px}
-  header{text-align:center;padding:30px 20px;border-bottom:1px solid #1e1e3a;margin-bottom:30px}
-  header h1{font-size:28px;color:#fff;margin:0 0 8px}
-  header h1 span{color:#00d4ff}
-  header p{color:#666;margin:4px 0;font-size:14px}
+  header{text-align:center;padding:30px 20px 20px;margin-bottom:20px}
+  header h1{font-size:32px;margin:0 0 8px;background:linear-gradient(135deg,#00d4ff,#7c4dff,#ff4081);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+  header p{color:#8888aa;margin:4px 0;font-size:14px}
   .user-bar{display:flex;justify-content:flex-end;align-items:center;gap:12px;margin-bottom:10px}
-  .user-bar span{color:#888;font-size:13px}
-  .user-bar button{background:#ff525233;color:#ff5252;border:1px solid #ff525244;padding:6px 12px;border-radius:6px;font-size:12px;cursor:pointer}
-  .auth-box{max-width:360px;margin:80px auto;background:#16213e;border-radius:12px;padding:30px;border:1px solid #1e1e3a}
-  .auth-box h2{color:#00d4ff;margin:0 0 20px;text-align:center}
-  .auth-box input{width:100%;background:#0f0f1a;border:1px solid #1e1e3a;color:#eee;padding:12px;border-radius:8px;font-size:14px;margin-bottom:12px}
-  .auth-box button{width:100%;padding:12px;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;margin-bottom:8px}
-  .auth-box .btn-login{background:#00d4ff;color:#000}
-  .auth-box .btn-register{background:#16213e;color:#00d4ff;border:1px solid #00d4ff}
-  .auth-box .error{color:#ff5252;font-size:12px;text-align:center;margin-bottom:10px}
-  .auth-box .toggle{text-align:center;color:#666;font-size:12px;margin-top:10px;cursor:pointer}
-  .auth-box .toggle a{color:#00d4ff;text-decoration:none}
-  .status{display:inline-block;padding:4px 12px;border-radius:20px;font-size:12px;margin-top:10px}
-  .status.live{background:#00e67622;color:#00e676;border:1px solid #00e67644}
+  .user-bar span{color:#aaa;font-size:13px}
+  .user-bar button{background:linear-gradient(135deg,#ff4081,#ff5252);color:#fff;border:none;padding:8px 16px;border-radius:20px;font-size:12px;cursor:pointer;font-weight:600}
+  .auth-box{max-width:380px;margin:60px auto;background:linear-gradient(145deg,#1a1040,#16213e);border-radius:16px;padding:35px;border:1px solid #2a2060;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+  .auth-box h2{color:#fff;margin:0 0 24px;text-align:center;font-size:22px}
+  .auth-box input{width:100%;background:#0a0a1a;border:1px solid #2a2060;color:#eee;padding:14px;border-radius:10px;font-size:14px;margin-bottom:14px;transition:border .3s}
+  .auth-box input:focus{border-color:#7c4dff;outline:none}
+  .auth-box button{width:100%;padding:14px;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:10px;transition:transform .2s}
+  .auth-box button:hover{transform:translateY(-1px)}
+  .auth-box .btn-login{background:linear-gradient(135deg,#7c4dff,#00d4ff);color:#fff}
+  .auth-box .error{color:#ff4081;font-size:12px;text-align:center;margin-bottom:10px}
+  .auth-box .toggle{text-align:center;color:#666;font-size:12px;margin-top:12px}
+  .auth-box .toggle a{color:#00d4ff;text-decoration:none;font-weight:600}
+  .status{display:inline-block;padding:5px 14px;border-radius:20px;font-size:12px;margin-top:12px;font-weight:600}
+  .status.live{background:linear-gradient(135deg,#00e67633,#00e67611);color:#00e676;border:1px solid #00e67644}
   .controls{display:flex;justify-content:center;gap:10px;margin-bottom:20px;flex-wrap:wrap}
-  .controls input,.controls select{background:#16213e;border:1px solid #1e1e3a;color:#eee;padding:10px 14px;border-radius:8px;font-size:14px;width:140px;text-transform:uppercase}
+  .controls input,.controls select{background:#12122a;border:1px solid #2a2060;color:#eee;padding:11px 14px;border-radius:10px;font-size:14px;width:140px;text-transform:uppercase;transition:border .3s}
+  .controls input:focus,.controls select:focus{border-color:#7c4dff;outline:none}
   .controls input::placeholder{color:#556;text-transform:none}
-  .controls button{padding:10px 18px;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer}
-  .btn-add{background:#00e676;color:#000}.btn-add:hover{background:#00c853}
-  .tabs{display:flex;justify-content:center;gap:8px;margin-bottom:20px}
-  .tab{background:#16213e;border:1px solid #1e1e3a;color:#888;padding:10px 20px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer}
-  .tab.active{background:#00d4ff22;color:#00d4ff;border-color:#00d4ff44}
-  .tab:hover{color:#fff}
-  .summary-box{background:#16213e;border:1px solid #1e1e3a;border-radius:10px;padding:16px;margin-bottom:20px}
-  .summary-box h3{margin:0 0 10px;color:#00d4ff;font-size:14px}
-  .summary-item{padding:6px 0;font-size:13px;color:#bbc;border-bottom:1px solid #0f0f1a}
+  .controls button{padding:11px 20px;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;transition:transform .2s}
+  .controls button:hover{transform:translateY(-1px)}
+  .btn-add{background:linear-gradient(135deg,#00e676,#00bfa5);color:#000}
+  .tabs{display:flex;justify-content:center;gap:6px;margin-bottom:24px}
+  .tab{background:transparent;border:1px solid #1e1e3a;color:#888;padding:12px 24px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;transition:all .3s}
+  .tab.active{background:linear-gradient(135deg,#7c4dff,#00d4ff);color:#fff;border-color:transparent;box-shadow:0 4px 15px rgba(124,77,255,.3)}
+  .tab:hover:not(.active){color:#fff;background:#1a1a3a}
+  .summary-box{background:linear-gradient(145deg,#1a1040,#0f1a2e);border:1px solid #2a2060;border-radius:14px;padding:20px;margin-bottom:24px;box-shadow:0 4px 20px rgba(0,0,0,.3)}
+  .summary-box h3{margin:0 0 12px;font-size:15px;background:linear-gradient(135deg,#00d4ff,#7c4dff);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+  .summary-item{padding:8px 0;font-size:13px;color:#bbc;border-bottom:1px solid #1a1a3a}
   .summary-item:last-child{border:none}
-  .disclaimer{background:#ff525211;border:1px solid #ff525233;border-radius:8px;padding:12px 16px;margin-bottom:24px;font-size:12px;color:#ff8a80;text-align:center}
+  .summary-item strong{color:#fff}
+  .disclaimer{background:linear-gradient(135deg,#ff408111,#ff525211);border:1px solid #ff408133;border-radius:10px;padding:12px 16px;margin-bottom:24px;font-size:12px;color:#ff8a80;text-align:center}
   .updated{text-align:center;color:#888;margin-bottom:20px;font-size:13px}
-  .table-wrap{overflow-x:auto;border-radius:12px;border:1px solid #1e1e3a;margin-bottom:30px}
+  .table-wrap{overflow-x:auto;border-radius:14px;border:1px solid #1e1e3a;margin-bottom:30px;box-shadow:0 4px 20px rgba(0,0,0,.2)}
   table{width:100%;border-collapse:collapse;min-width:800px}
-  th{background:#16213e;padding:14px 10px;text-align:right;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#8899aa}
+  th{background:linear-gradient(180deg,#16213e,#12122a);padding:14px 10px;text-align:right;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#7c8db5}
   th:first-child{text-align:left;padding-left:16px}
-  td{padding:12px 10px;text-align:right;border-bottom:1px solid #1a1a2e;font-size:13px}
-  td:first-child{text-align:left;font-weight:600;padding-left:16px;font-size:14px}
-  tr:hover{background:#16213e88}
-  .pos{color:#00e676}.neg{color:#ff5252}
-  .badge{padding:4px 10px;border-radius:20px;font-size:11px;font-weight:600;white-space:nowrap;display:inline-block}
-  .badge.bullish{background:#00e67622;color:#00e676}
-  .badge.bearish{background:#ff525222;color:#ff5252}
-  .badge.neutral{background:#ffd60022;color:#ffd600}
-  .btn-del{background:#ff525233;color:#ff5252;border:1px solid #ff525244;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer}
-  .btn-del:hover{background:#ff525255}
+  td{padding:13px 10px;text-align:right;border-bottom:1px solid #1a1a2e;font-size:13px}
+  td:first-child{text-align:left;font-weight:700;padding-left:16px;font-size:14px}
+  tr{transition:background .2s}
+  tr:hover{background:linear-gradient(90deg,#7c4dff11,#00d4ff11)}
+  .pos{color:#00e676}.neg{color:#ff4081}
+  .badge{padding:5px 12px;border-radius:20px;font-size:11px;font-weight:700;white-space:nowrap;display:inline-block}
+  .badge.bullish{background:linear-gradient(135deg,#00e67622,#00e67611);color:#00e676;border:1px solid #00e67633}
+  .badge.bearish{background:linear-gradient(135deg,#ff408122,#ff408111);color:#ff4081;border:1px solid #ff408133}
+  .badge.neutral{background:linear-gradient(135deg,#ffd60022,#ffd60011);color:#ffd600;border:1px solid #ffd60033}
+  .btn-del{background:#ff408122;color:#ff4081;border:1px solid #ff408133;padding:5px 12px;border-radius:8px;font-size:11px;cursor:pointer;transition:all .2s}
+  .btn-del:hover{background:#ff408144;transform:scale(1.05)}
   h2{color:#fff;font-size:20px;margin:0 0 16px;padding-left:4px}
   .news{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px;margin-bottom:30px}
-  .card{background:#16213e;border-radius:10px;padding:16px;border:1px solid #1e1e3a}
+  .card{background:linear-gradient(145deg,#16213e,#12122a);border-radius:12px;padding:18px;border:1px solid #1e1e3a;transition:transform .2s,box-shadow .2s}
+  .card:hover{transform:translateY(-2px);box-shadow:0 8px 25px rgba(0,0,0,.3)}
   .card h3{margin:0 0 10px;color:#fff;font-size:14px;display:flex;align-items:center;gap:8px}
-  .card ul{margin:0;padding:0 0 0 18px;font-size:12px;color:#aab;line-height:1.6}
+  .card ul{margin:0;padding:0 0 0 18px;font-size:12px;color:#99a;line-height:1.7}
   .card li{margin-bottom:4px}
-  .methodology{background:#16213e;border-radius:10px;padding:20px;border:1px solid #1e1e3a;font-size:13px;color:#889;line-height:1.7}
+  .methodology{background:linear-gradient(145deg,#16213e,#12122a);border-radius:14px;padding:24px;border:1px solid #1e1e3a;font-size:13px;color:#889;line-height:1.8}
   .methodology h3{color:#aaa;margin:0 0 12px;font-size:14px}
-  .methodology b{color:#bbc}
-  footer{text-align:center;padding:30px;color:#444;font-size:12px;border-top:1px solid #1e1e3a;margin-top:30px}
-  .toast{position:fixed;top:20px;right:20px;padding:12px 20px;border-radius:8px;font-size:13px;z-index:999;opacity:0;transition:opacity .3s}
-  .toast.show{opacity:1}.toast.success{background:#00e676;color:#000}.toast.error{background:#ff5252;color:#fff}
-  .modal-overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.7);z-index:1000;overflow-y:auto;padding:20px}
-  .modal{max-width:900px;margin:20px auto;background:#0f0f1a;border-radius:16px;border:1px solid #1e1e3a;padding:30px;position:relative}
+  .methodology b{color:#ccd}
+  footer{text-align:center;padding:30px;color:#555;font-size:12px;border-top:1px solid #1e1e3a;margin-top:30px}
+  .toast{position:fixed;top:20px;right:20px;padding:14px 24px;border-radius:12px;font-size:13px;z-index:999;opacity:0;transition:all .3s;font-weight:600;box-shadow:0 8px 25px rgba(0,0,0,.3)}
+  .toast.show{opacity:1}.toast.success{background:linear-gradient(135deg,#00e676,#00bfa5);color:#000}.toast.error{background:linear-gradient(135deg,#ff4081,#ff5252);color:#fff}
+  .modal-overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.8);backdrop-filter:blur(5px);z-index:1000;overflow-y:auto;padding:20px}
+  .modal{max-width:900px;margin:20px auto;background:linear-gradient(145deg,#0f0f2a,#0a0a1a);border-radius:20px;border:1px solid #2a2060;padding:30px;position:relative;box-shadow:0 20px 60px rgba(0,0,0,.5)}
   .modal-close{position:absolute;top:16px;right:20px;background:none;border:none;color:#888;font-size:24px;cursor:pointer}
-  .modal-close:hover{color:#fff}
-  .modal h2{color:#00d4ff;margin:0 0 4px;font-size:24px}
+  .modal-close:hover{color:#ff4081}
+  .modal h2{background:linear-gradient(135deg,#00d4ff,#7c4dff);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin:0 0 4px;font-size:24px}
   .modal .price-big{font-size:36px;font-weight:700;margin:10px 0}
   .modal .stats{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;margin:20px 0}
-  .modal .stat{background:#16213e;border-radius:8px;padding:12px}
-  .modal .stat label{display:block;font-size:11px;color:#668;text-transform:uppercase;margin-bottom:4px}
-  .modal .stat span{font-size:16px;font-weight:600}
-  .chart-container{background:#16213e;border-radius:10px;padding:16px;margin:20px 0}
+  .modal .stat{background:linear-gradient(145deg,#16213e,#12122a);border-radius:10px;padding:14px;border:1px solid #1e1e3a}
+  .modal .stat label{display:block;font-size:11px;color:#668;text-transform:uppercase;margin-bottom:4px;letter-spacing:.5px}
+  .modal .stat span{font-size:16px;font-weight:700}
+  .chart-container{background:linear-gradient(145deg,#16213e,#12122a);border-radius:12px;padding:16px;margin:20px 0;border:1px solid #1e1e3a}
   .chart-container canvas{width:100%;height:200px}
   .modal .news-list{margin:20px 0}
   .modal .news-list h3{color:#aaa;margin:0 0 12px}
   .modal .news-list li{margin-bottom:8px;font-size:13px;color:#bbc;line-height:1.5}
-  @media(max-width:600px){.container{padding:10px}header h1{font-size:22px}.modal{padding:16px}}
+  @media(max-width:600px){.container{padding:10px}header h1{font-size:24px}table{font-size:11px}.modal{padding:16px}.tabs{flex-wrap:wrap}}
 </style>
 </head>
 <body>
@@ -367,7 +372,7 @@ HTML = <<~'HTML'
 </div>
 <div class="container">
   <div id="auth-view" style="display:none">
-    <header><h1>📈 <span>StockPulse AI</span></h1><p>Sign in to manage your personal watchlist</p></header>
+    <header><h1>📈 StockPulse AI</h1><p>Sign in to manage your personal watchlist</p></header>
     <div class="auth-box">
       <h2 id="auth-title">Sign In</h2>
       <div class="error" id="auth-error"></div>
@@ -383,7 +388,7 @@ HTML = <<~'HTML'
   <div id="app-view" style="display:none">
     <div class="user-bar"><span id="user-label"></span><button onclick="logout()">Sign Out</button></div>
     <header>
-      <h1>📈 <span>StockPulse AI</span></h1>
+      <h1><span class="logo-pulse"></span>StockPulse AI</h1>
       <p>Your Personal Watchlist • Real-Time Prices • Sentiment • Prediction</p>
       <div class="status live" id="status">● LIVE</div>
     </header>
