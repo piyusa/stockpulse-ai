@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: stockpulse-ai
+    runtime: ruby
+    buildCommand: echo "No build needed"
+    startCommand: ruby app.rb
+    envVars:
+      - key: USERS_FILE
+        value: /tmp/stock_users.json
