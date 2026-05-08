@@ -16,6 +16,26 @@ PLAID_SECRET = ENV.fetch('PLAID_SECRET', 'd317e1fe2ddfb2e89bc603a0f8d1f0')
 PLAID_ENV = ENV.fetch('PLAID_ENV', 'production')
 PLAID_HOST = 'https://production.plaid.com'
 
+CLAUDE_API_KEY = ENV.fetch('CLAUDE_API_KEY', '')
+
+def claude_ask(prompt, max_tokens = 300)
+  uri = URI('https://api.anthropic.com/v1/messages')
+  req = Net::HTTP::Post.new(uri)
+  req['Content-Type'] = 'application/json'
+  req['x-api-key'] = CLAUDE_API_KEY
+  req['anthropic-version'] = '2023-06-01'
+  req.body = JSON.generate({
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: max_tokens,
+    messages: [{ role: 'user', content: prompt }]
+  })
+  res = Net::HTTP.start(uri.host, uri.port, use_ssl: true, open_timeout: 15, read_timeout: 30) { |h| h.request(req) }
+  data = JSON.parse(res.body)
+  data['content']&.first&.dig('text') || data['error']&.dig('message') || 'No response'
+rescue => e
+  "Error: #{e.message}"
+end
+
 POSITIVE_WORDS = %w[surge rally gain rise jump soar beat bullish upgrade buy strong growth boom record high peak outperform positive optimistic profit revenue earnings exceeded].freeze
 NEGATIVE_WORDS = %w[drop fall crash decline plunge miss bearish downgrade sell weak loss slump low cut risk fear concern negative pessimistic layoff recession tariff].freeze
 
@@ -692,6 +712,12 @@ HTML = <<~'HTML'
     <footer>StockPulse AI • stockpulse.ai • Auto-refreshes every 60s</footer>
   </div>
 </div>
+<div id="ai-chat" style="display:none;position:fixed;bottom:80px;right:20px;width:360px;max-height:500px;background:#fff;border-radius:16px;border:1px solid #e5e7eb;box-shadow:0 20px 60px rgba(0,0,0,.15);z-index:900;display:flex;flex-direction:column;overflow:hidden">
+  <div style="padding:14px 18px;background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;font-weight:700;display:flex;justify-content:space-between;align-items:center"><span>🤖 Ask StockPulse AI</span><button onclick="toggleChat()" style="background:none;border:none;color:#fff;font-size:18px;cursor:pointer">✕</button></div>
+  <div id="ai-messages" style="flex:1;overflow-y:auto;padding:14px;max-height:340px"></div>
+  <div style="padding:10px;border-top:1px solid #e5e7eb;display:flex;gap:8px"><input type="text" id="ai-input" placeholder="Ask about any stock..." style="flex:1;padding:10px;border:1px solid #e5e7eb;border-radius:8px;font-size:13px" onkeydown="if(event.key==='Enter')sendAiChat()"><button onclick="sendAiChat()" style="background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;border:none;padding:10px 14px;border-radius:8px;cursor:pointer;font-weight:700">→</button></div>
+</div>
+<button id="ai-fab" onclick="toggleChat()" style="position:fixed;bottom:20px;right:20px;width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;border:none;font-size:24px;cursor:pointer;box-shadow:0 4px 20px rgba(124,58,237,.4);z-index:899">🤖</button>
 <script>
 let isLogin=true;
 function toast(msg,type='success'){const t=document.getElementById('toast');t.textContent=msg;t.className=`toast ${type} show`;setTimeout(()=>t.className='toast',3000);}
@@ -925,6 +951,36 @@ async function showExistingAlerts(sym){
     el.innerHTML='<div style="margin-top:12px;font-size:12px;color:#ffd600">⚡ Active alerts: '+existing.map(a=>`<span style="background:#ffd60022;padding:3px 8px;border-radius:6px;margin:2px">${a.direction} $${a.target.toFixed(2)}</span>`).join(' ')+'</div>';
   } else el.innerHTML='';
 }
+// --- AI Features ---
+async function getAiAnalysis(sym){
+  document.getElementById('ai-insight').innerHTML='<div style="padding:12px;background:#f5f3ff;border:1px solid #e5e7eb;border-radius:10px;color:#6b7280;font-size:13px">🤖 Analyzing headlines...</div>';
+  const r=await fetch('/api/ai/analyze?symbol='+sym);const d=await r.json();
+  document.getElementById('ai-insight').innerHTML=d.ok?`<div style="padding:14px;background:#f5f3ff;border:1px solid #c7d2fe;border-radius:10px;font-size:13px;color:#1a1a2e;line-height:1.6"><strong style="color:#7c3aed">🤖 AI Analysis:</strong><br>${d.analysis}</div>`:`<div style="color:#dc2626">${d.error}</div>`;
+}
+async function getEarningsSummary(sym){
+  document.getElementById('ai-insight').innerHTML='<div style="padding:12px;background:#ecfdf5;border:1px solid #e5e7eb;border-radius:10px;color:#6b7280;font-size:13px">📊 Summarizing earnings...</div>';
+  const r=await fetch('/api/ai/earnings?symbol='+sym);const d=await r.json();
+  document.getElementById('ai-insight').innerHTML=d.ok?`<div style="padding:14px;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:10px;font-size:13px;color:#1a1a2e;line-height:1.6"><strong style="color:#059669">📊 Earnings Summary:</strong><br>${d.summary}</div>`:`<div style="color:#dc2626">${d.error}</div>`;
+}
+function toggleChat(){
+  const chat=document.getElementById('ai-chat');
+  chat.style.display=chat.style.display==='none'||!chat.style.display?'flex':'none';
+}
+async function sendAiChat(){
+  const input=document.getElementById('ai-input');
+  const q=input.value.trim();if(!q)return;
+  input.value='';
+  const msgs=document.getElementById('ai-messages');
+  msgs.innerHTML+=`<div style="margin-bottom:10px;text-align:right"><span style="background:#f3f4f6;padding:8px 12px;border-radius:10px;font-size:13px;display:inline-block;max-width:80%">${q}</span></div>`;
+  msgs.innerHTML+=`<div style="margin-bottom:10px" id="ai-typing"><span style="background:#f5f3ff;padding:8px 12px;border-radius:10px;font-size:13px;color:#6b7280;display:inline-block">Thinking...</span></div>`;
+  msgs.scrollTop=msgs.scrollHeight;
+  const r=await fetch('/api/ai/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:q})});
+  const d=await r.json();
+  document.getElementById('ai-typing')?.remove();
+  msgs.innerHTML+=`<div style="margin-bottom:10px"><span style="background:#f5f3ff;border:1px solid #e5e7eb;padding:8px 12px;border-radius:10px;font-size:13px;display:inline-block;max-width:85%;line-height:1.5">${d.ok?d.answer:d.error}</span></div>`;
+  msgs.scrollTop=msgs.scrollHeight;
+}
+
 // --- Paper Trading ---
 async function loadPaperTrade(){
   const r=await fetch('/api/papertrade');const d=await r.json();
@@ -1111,6 +1167,11 @@ async function openDetail(sym){
       ${d.ai.anomalies.length?`<div><b style="font-size:12px;color:#6b7280">⚠️ Anomalies:</b>${d.ai.anomalies.map(a=>`<div style="margin:6px 0;padding:8px 12px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:13px"><strong style="color:#d97706">${a.type}</strong> — ${a.desc}</div>`).join('')}</div>`:''}
     </div>`:''}
     <div class="news-list"><h3>📰 Latest News</h3><ul>${d.headlines.map(h=>'<li>'+h+'</li>').join('')}</ul></div>
+    <div style="display:flex;gap:10px;margin:16px 0;flex-wrap:wrap">
+      <button onclick="getAiAnalysis('${d.symbol}')" style="background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;border:none;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">🤖 AI Analysis</button>
+      <button onclick="getEarningsSummary('${d.symbol}')" style="background:linear-gradient(135deg,#059669,#10b981);color:#fff;border:none;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">📊 Earnings Summary</button>
+    </div>
+    <div id="ai-insight" style="margin-bottom:16px"></div>
     <div style="margin-top:20px;padding:16px;background:linear-gradient(145deg,#1a1040,#0f1a2e);border-radius:10px;border:1px solid #2a2060">
       <h3 style="margin:0 0 12px;color:#ffd600">🔔 Set Price Alert</h3>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
@@ -1471,6 +1532,41 @@ loop do
       end
       data = JSON.generate(results)
       client.print "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: #{data.bytesize}\r\nConnection: close\r\n\r\n#{data}"
+
+    when path =~ /^\/api\/ai\/analyze\?symbol=([A-Za-z.]+)/ && req[:method] == 'GET'
+      sym = $1.upcase
+      if user
+        headlines = fetch_news(sym)
+        prompt = "You are a stock market analyst. Based on these recent headlines about #{sym}, provide a 2-3 sentence nuanced analysis of what's driving the stock and any risks. Be specific and actionable.\n\nHeadlines:\n#{headlines.first(8).map { |h| "- #{h}" }.join("\n")}\n\nAnalysis:"
+        analysis = claude_ask(prompt, 200)
+        json_response(client, { ok: true, analysis: analysis })
+      else
+        json_response(client, { error: 'Not authenticated' }, '401 Unauthorized')
+      end
+
+    when path =~ /^\/api\/ai\/earnings\?symbol=([A-Za-z.]+)/ && req[:method] == 'GET'
+      sym = $1.upcase
+      if user
+        headlines = fetch_news(sym)
+        prompt = "You are a financial analyst. Based on recent news about #{sym}, summarize the latest earnings performance and outlook in 3-4 sentences. Include: revenue/EPS beat or miss, key growth drivers, management guidance, and whether the signal is bullish or bearish. If no earnings data is available, say so.\n\nRecent headlines:\n#{headlines.first(8).map { |h| "- #{h}" }.join("\n")}\n\nEarnings Summary:"
+        summary = claude_ask(prompt, 250)
+        json_response(client, { ok: true, summary: summary })
+      else
+        json_response(client, { error: 'Not authenticated' }, '401 Unauthorized')
+      end
+
+    when path == '/api/ai/chat' && req[:method] == 'POST'
+      if user
+        data = JSON.parse(req[:body])
+        question = data['question']
+        # Get context about user's watchlist
+        stocks_info = ($users[user]['stocks'] || []).first(5).join(', ')
+        prompt = "You are StockPulse AI, a helpful stock market assistant. You provide balanced, educational analysis. Never give definitive buy/sell advice — instead present pros, cons, and factors to consider. Keep responses concise (3-5 sentences).\n\nUser's watchlist includes: #{stocks_info}\n\nUser question: #{question}\n\nResponse:"
+        answer = claude_ask(prompt, 350)
+        json_response(client, { ok: true, answer: answer })
+      else
+        json_response(client, { error: 'Not authenticated' }, '401 Unauthorized')
+      end
 
     when path == '/api/plaid/link-token' && req[:method] == 'POST'
       if user
