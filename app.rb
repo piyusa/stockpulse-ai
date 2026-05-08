@@ -785,7 +785,7 @@ async function connectBrokerage(){
 async function loadPlaidHoldings(){
   const r=await fetch('/api/plaid/holdings');const d=await r.json();
   if(!d.ok||!d.holdings){document.getElementById('plaid-holdings').innerHTML='';return;}
-  const rows=d.holdings.filter(h=>h.symbol!=='N/A').map(h=>`<tr><td>${h.symbol}</td><td>${h.quantity}</td><td>$${(h.costBasis||0).toFixed(2)}</td><td>$${(h.value||0).toFixed(2)}</td></tr>`).join('');
+  const rows=d.holdings.filter(h=>h.symbol!=='N/A').map(h=>`<tr><td><a href="#" onclick="openDetail('${h.symbol}');return false" style="color:#4f46e5;text-decoration:none;font-weight:700">${h.symbol}</a></td><td>${h.quantity}</td><td>$${(h.costBasis||0).toFixed(2)}</td><td>$${(h.value||0).toFixed(2)}</td></tr>`).join('');
   document.getElementById('plaid-holdings').innerHTML=`<div class="table-wrap"><table><thead><tr><th style="text-align:left">Ticker</th><th>Shares</th><th>Cost Basis</th><th>Value</th></tr></thead><tbody>${rows}</tbody></table></div><p style="text-align:center;font-size:11px;color:#556">Live holdings from connected brokerage</p>`;
 }
 
