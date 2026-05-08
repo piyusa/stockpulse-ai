@@ -473,10 +473,10 @@ HTML = <<~'HTML'
     </div>
     <div id="tab-learn" style="display:none">
     <h2>🎓 Trading Coach</h2>
-    <div class="summary-box" style="border-color:#7c4dff44">
+    <div class="summary-box" style="border-color:#7c3aed44">
       <h3>📍 Your Learning Path</h3>
-      <div id="learn-progress" style="margin-bottom:12px;height:6px;background:#0a0a1a;border-radius:3px;overflow:hidden"><div id="learn-bar" style="height:100%;width:0%;background:linear-gradient(90deg,#7c4dff,#00d4ff);transition:width .5s;border-radius:3px"></div></div>
-      <div id="learn-progress-text" style="font-size:12px;color:#888"></div>
+      <div id="learn-progress" style="margin-bottom:12px;height:8px;background:#f3f4f6;border-radius:4px;overflow:hidden"><div id="learn-bar" style="height:100%;width:0%;background:linear-gradient(90deg,#7c3aed,#4f46e5);transition:width .5s;border-radius:4px"></div></div>
+      <div id="learn-progress-text" style="font-size:12px;color:#6b7280"></div>
     </div>
     <div class="news" id="lessons">
       <div class="card" onclick="openLesson(0)" style="cursor:pointer">
@@ -505,9 +505,9 @@ HTML = <<~'HTML'
       </div>
     </div>
     <div class="summary-box" id="lesson-detail" style="display:none"></div>
-    <div class="summary-box" style="border-color:#00e67644">
+    <div class="summary-box" style="border-color:#05966944">
       <h3>💡 Today's Trading Tip</h3>
-      <div id="daily-tip" class="summary-item" style="border:none;font-size:14px"></div>
+      <div id="daily-tip" class="summary-item" style="border:none;font-size:14px;color:#1a1a2e"></div>
     </div>
     <div class="summary-box">
       <h3>📚 Glossary — Key Terms</h3>
@@ -763,25 +763,25 @@ const GLOSSARY=[['Bull Market','Extended period of rising prices'],['Bear Market
 let completedLessons=JSON.parse(localStorage.getItem('sp_lessons')||'[]');
 function initLearn(){
   document.getElementById('daily-tip').textContent=TIPS[new Date().getDate()%TIPS.length];
-  document.getElementById('glossary').innerHTML=GLOSSARY.map(([t,d])=>`<div style="padding:8px;background:#0a0a1a;border-radius:8px"><strong style="color:#00d4ff">${t}</strong><br><span style="color:#888">${d}</span></div>`).join('');
+  document.getElementById('glossary').innerHTML=GLOSSARY.map(([t,d])=>`<div style="padding:10px;background:#f9fafb;border-radius:8px;border:1px solid #e5e7eb"><strong style="color:#4f46e5">${t}</strong><br><span style="color:#6b7280;font-size:12px">${d}</span></div>`).join('');
   updateProgress();
 }
 function updateProgress(){
   const pct=Math.round((completedLessons.length/LESSONS.length)*100);
   document.getElementById('learn-bar').style.width=pct+'%';
   document.getElementById('learn-progress-text').textContent=`${completedLessons.length}/${LESSONS.length} lessons completed (${pct}%)`;
-  document.querySelectorAll('#lessons .card').forEach((c,i)=>{if(completedLessons.includes(i))c.style.borderColor='#00e67644';});
+  document.querySelectorAll('#lessons .card').forEach((c,i)=>{if(completedLessons.includes(i))c.style.borderColor='#059669',c.style.background='#f0fdf4';});
 }
 function openLesson(idx){
   const l=LESSONS[idx];const done=completedLessons.includes(idx);
   document.getElementById('lesson-detail').style.display='block';
-  document.getElementById('lesson-detail').innerHTML=`<h3>${l.title} ${done?'✅':''}</h3>${l.content}<div style="margin-top:16px;padding:16px;background:#0a0a1a;border-radius:10px"><b style="color:#ffd600">Quiz:</b> ${l.quiz}<div style="margin-top:10px" id="quiz-answers">${l.answers.map((a,i)=>`<button onclick="checkAnswer(${idx},${i})" style="display:block;width:100%;text-align:left;margin:6px 0;padding:10px 14px;background:#12122a;border:1px solid #2a2060;color:#eee;border-radius:8px;cursor:pointer;font-size:13px">${a}</button>`).join('')}</div></div>`;
+  document.getElementById('lesson-detail').innerHTML=`<h3 style="font-size:18px;color:#1a1a2e">${l.title} ${done?'✅':''}</h3><div style="color:#4b5563;line-height:1.8;font-size:14px">${l.content}</div><div style="margin-top:20px;padding:20px;background:#f9fafb;border-radius:12px;border:1px solid #e5e7eb"><b style="color:#7c3aed;font-size:14px">🧠 Quiz:</b><p style="color:#1a1a2e;font-weight:600;margin:8px 0 12px">${l.quiz}</p><div id="quiz-answers">${l.answers.map((a,i)=>`<button onclick="checkAnswer(${idx},${i})" style="display:block;width:100%;text-align:left;margin:8px 0;padding:12px 16px;background:#fff;border:1px solid #e5e7eb;color:#1a1a2e;border-radius:10px;cursor:pointer;font-size:14px;transition:all .2s">${String.fromCharCode(65+i)}. ${a}</button>`).join('')}</div></div>`;
   document.getElementById('lesson-detail').scrollIntoView({behavior:'smooth'});
 }
 function checkAnswer(lesson,answer){
   const correct=LESSONS[lesson].correct===answer;
   const btns=document.querySelectorAll('#quiz-answers button');
-  btns.forEach((b,i)=>{b.disabled=true;if(i===LESSONS[lesson].correct)b.style.background='linear-gradient(135deg,#00e67633,#00e67611)',b.style.borderColor='#00e676';else if(i===answer&&!correct)b.style.background='#ff408122',b.style.borderColor='#ff4081';});
+  btns.forEach((b,i)=>{b.disabled=true;b.style.cursor='default';if(i===LESSONS[lesson].correct)b.style.background='#ecfdf5',b.style.borderColor='#059669',b.style.color='#059669';else if(i===answer&&!correct)b.style.background='#fef2f2',b.style.borderColor='#dc2626',b.style.color='#dc2626';});
   if(correct&&!completedLessons.includes(lesson)){completedLessons.push(lesson);localStorage.setItem('sp_lessons',JSON.stringify(completedLessons));updateProgress();toast('✓ Correct! Lesson completed');}
   else if(!correct)toast('✗ Try again next time','error');
 }
