@@ -7,6 +7,13 @@ require 'digest'
 require 'base64'
 require 'date'
 
+begin
+  require 'pg'
+  USE_PG = !ENV['DATABASE_URL'].to_s.empty?
+rescue LoadError
+  USE_PG = false
+end
+
 PORT = (ENV["PORT"] || 8888).to_i
 USERS_FILE = ENV.fetch('USERS_FILE', File.expand_path('~/.stock_users.json'))
 DEFAULT_STOCKS = %w[AAPL MSFT NVDA GOOG AMZN META TSM AVGO ORCL CRM]
@@ -62,14 +69,52 @@ def plaid_get_holdings(access_token)
 end
 
 # --- User store ---
+def db_conn
+  @db ||= begin
+    conn = PG.connect(ENV['DATABASE_URL'])
+    conn.exec("CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, data JSONB NOT NULL DEFAULT '{}')")
+    conn
+  end
+end
+
 def load_users
-  File.exist?(USERS_FILE) ? JSON.parse(File.read(USERS_FILE)) : {}
-rescue
+  return (File.exist?(USERS_FILE) ? JSON.parse(File.read(USERS_FILE)) : {}) unless USE_PG
+  result = db_conn.exec("SELECT username, data FROM users")
+  users = {}
+  result.each { |row| users[row['username']] = JSON.parse(row['data']) }
+  users
+rescue => e
+  puts "DB load error: #{e.message}"
   {}
 end
 
 def save_users(users)
-  File.write(USERS_FILE, JSON.generate(users))
+  unless USE_PG
+    File.write(USERS_FILE, JSON.generate(users))
+    return
+  end
+  users.each do |username, data|
+    db_conn.exec_params(
+      "INSERT INTO users (username, data) VALUES ($1, $2) ON CONFLICT (username) DO UPDATE SET data = $2",
+      [username, JSON.generate(data)]
+    )
+  end
+rescue => e
+  puts "DB save error: #{e.message}"
+end
+
+def save_user(username, data)
+  unless USE_PG
+    $users[username] = data
+    File.write(USERS_FILE, JSON.generate($users))
+    return
+  end
+  db_conn.exec_params(
+    "INSERT INTO users (username, data) VALUES ($1, $2) ON CONFLICT (username) DO UPDATE SET data = $2",
+    [username, JSON.generate(data)]
+  )
+rescue => e
+  puts "DB save_user error: #{e.message}"
 end
 
 def hash_pw(pw)
