@@ -16,7 +16,7 @@ PLAID_SECRET = ENV.fetch('PLAID_SECRET', 'd317e1fe2ddfb2e89bc603a0f8d1f0')
 PLAID_ENV = ENV.fetch('PLAID_ENV', 'production')
 PLAID_HOST = 'https://production.plaid.com'
 
-GEMINI_API_KEY = ENV.fetch('GEMINI_API_KEY', 'AIzaSyBWJHz6HtA5J-9QvtMub76rbaDE-fkBFUc')
+GEMINI_API_KEY = ENV.fetch('GEMINI_API_KEY', '')
 
 def ai_ask(prompt, max_tokens = 300)
   uri = URI("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=#{GEMINI_API_KEY}")
