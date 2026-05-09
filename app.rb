@@ -16,15 +16,20 @@ PLAID_SECRET = ENV.fetch('PLAID_SECRET', 'd317e1fe2ddfb2e89bc603a0f8d1f0')
 PLAID_ENV = ENV.fetch('PLAID_ENV', 'production')
 PLAID_HOST = 'https://production.plaid.com'
 
-GEMINI_API_KEY = ENV.fetch('GEMINI_API_KEY', '')
+HF_API_KEY = ENV.fetch('HF_API_KEY', '')
 
 def ai_ask(prompt, max_tokens = 300)
-  uri = URI("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=#{GEMINI_API_KEY}")
-  req = Net::HTTP::Post.new(uri, 'Content-Type' => 'application/json')
-  req.body = JSON.generate({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: max_tokens } })
-  res = Net::HTTP.start(uri.host, uri.port, use_ssl: true, open_timeout: 15, read_timeout: 30) { |h| h.request(req) }
+  uri = URI('https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.3')
+  req = Net::HTTP::Post.new(uri, 'Content-Type' => 'application/json', 'Authorization' => "Bearer #{HF_API_KEY}")
+  req.body = JSON.generate({ inputs: "<s>[INST] #{prompt} [/INST]", parameters: { max_new_tokens: max_tokens, temperature: 0.7 } })
+  res = Net::HTTP.start(uri.host, uri.port, use_ssl: true, open_timeout: 15, read_timeout: 60) { |h| h.request(req) }
   data = JSON.parse(res.body)
-  data.dig('candidates', 0, 'content', 'parts', 0, 'text') || data['error']&.dig('message') || 'No response'
+  if data.is_a?(Array) && data[0]
+    text = data[0]['generated_text'] || ''
+    text.split('[/INST]').last.strip
+  else
+    data['error'] || 'No response'
+  end
 rescue => e
   "Error: #{e.message}"
 end
