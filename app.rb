@@ -334,6 +334,10 @@ def ai_analyze(closes, highs, lows, volumes, price, prev_close)
 
   # --- 3. Momentum Score (0-100) ---
   scores = []
+
+  # Composite AI Score (0-100)
+  rsi = nil; macd_val = nil; above_ma = nil; vol_trend = nil
+
   # RSI (14-period approximation)
   if n >= 14
     gains = []; losses = []
@@ -364,12 +368,11 @@ def ai_analyze(closes, highs, lows, volumes, price, prev_close)
     scores << { name: 'Price vs MA20', value: ((price - ma20) / ma20 * 100).round(1), signal: above_ma ? 'bullish' : 'bearish' }
   end
 
-  # Composite AI Score (0-100)
   ai_score = 50
-  ai_score += (rsi && rsi > 50 ? [rsi - 50, 15].min : rsi ? [rsi - 50, -15].max : 0) if defined?(rsi) && rsi
-  ai_score += (macd_val && macd_val > 0 ? 15 : -15) if defined?(macd_val) && macd_val
-  ai_score += (above_ma ? 10 : -10) if defined?(above_ma)
-  ai_score += (vol_trend && vol_trend > 0 ? 10 : -5) if defined?(vol_trend) && vol_trend
+  ai_score += (rsi > 50 ? [rsi - 50, 15].min : [rsi - 50, -15].max) if rsi
+  ai_score += (macd_val > 0 ? 15 : -15) if macd_val
+  ai_score += (above_ma ? 10 : -10) unless above_ma.nil?
+  ai_score += (vol_trend > 0 ? 10 : -5) if vol_trend
   ai_score = [[ai_score, 0].max, 100].min
 
   # --- 4. Peer Comparison (vs sector avg) ---
