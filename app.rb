@@ -19,12 +19,16 @@ PLAID_HOST = 'https://production.plaid.com'
 HF_API_KEY = ENV.fetch('HF_API_KEY', '')
 
 def ai_ask(prompt, max_tokens = 300)
-  uri = URI('https://router.huggingface.co/novita/v3/openai/chat/completions')
+  uri = URI('https://api-inference.huggingface.co/models/microsoft/Phi-3-mini-4k-instruct')
   req = Net::HTTP::Post.new(uri, 'Content-Type' => 'application/json', 'Authorization' => "Bearer #{HF_API_KEY}")
-  req.body = JSON.generate({ model: 'deepseek-ai/DeepSeek-V3-0324', messages: [{ role: 'user', content: prompt }], max_tokens: max_tokens })
+  req.body = JSON.generate({ inputs: prompt, parameters: { max_new_tokens: max_tokens, temperature: 0.7, return_full_text: false } })
   res = Net::HTTP.start(uri.host, uri.port, use_ssl: true, open_timeout: 15, read_timeout: 60) { |h| h.request(req) }
   data = JSON.parse(res.body)
-  data.dig('choices', 0, 'message', 'content') || data['error']&.to_s || 'No response'
+  if data.is_a?(Array) && data[0]
+    data[0]['generated_text'].to_s.strip
+  else
+    data['error'] || 'No response'
+  end
 rescue => e
   "Error: #{e.message}"
 end
