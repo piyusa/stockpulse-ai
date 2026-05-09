@@ -185,7 +185,8 @@ def fetch_stocks(symbols)
       closes5 = data5['chart']['result'][0]['indicators']['quote'][0]['close'].compact
 
       price = meta['regularMarketPrice']
-      prev_close = meta['chartPreviousClose']
+      # chartPreviousClose with 5d range gives 5-day-ago close; use second-to-last close instead
+      prev_close = closes5.size >= 2 ? closes5[-2] : meta['chartPreviousClose']
       trend = closes5.size >= 2 ? ((closes5.last - closes5.first) / closes5.first * 100) : 0
 
       # Fetch analyst price targets from Yahoo Finance (consensus forecasts)
@@ -389,7 +390,12 @@ def fetch_stock_detail(sym)
   dates = timestamps.map { |t| Time.at(t).strftime('%Y-%m-%d') }
 
   price = meta['regularMarketPrice']
-  prev_close = meta['chartPreviousClose']
+  # Get actual previous close from 1d range
+  uri_1d = URI("https://query1.finance.yahoo.com/v8/finance/chart/#{sym}?interval=1d&range=1d")
+  req_1d = Net::HTTP::Get.new(uri_1d)
+  req_1d['User-Agent'] = 'Mozilla/5.0'
+  res_1d = Net::HTTP.start(uri_1d.host, uri_1d.port, use_ssl: true, open_timeout: 5, read_timeout: 5) { |h| h.request(req_1d) }
+  prev_close = JSON.parse(res_1d.body)['chart']['result'][0]['meta']['chartPreviousClose'] rescue meta['chartPreviousClose']
   high52 = meta['fiftyTwoWeekHigh']
   low52 = meta['fiftyTwoWeekLow']
 
