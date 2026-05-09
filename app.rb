@@ -101,11 +101,13 @@ def save_users(users)
   end
 rescue => e
   puts "DB save error: #{e.message}"
+  # Fallback to file
+  File.write(USERS_FILE, JSON.generate(users)) rescue nil
 end
 
 def save_user(username, data)
+  $users[username] = data
   unless USE_PG
-    $users[username] = data
     File.write(USERS_FILE, JSON.generate($users))
     return
   end
@@ -115,6 +117,7 @@ def save_user(username, data)
   )
 rescue => e
   puts "DB save_user error: #{e.message}"
+  File.write(USERS_FILE, JSON.generate($users)) rescue nil
 end
 
 def hash_pw(pw)
@@ -123,6 +126,14 @@ end
 
 $users = load_users
 $sessions = {} # token => username
+$last_db_load = Time.now
+
+def ensure_users_loaded
+  if USE_PG && (Time.now - $last_db_load > 5)
+    $users = load_users
+    $last_db_load = Time.now
+  end
+end
 
 # --- Stock logic ---
 def analyze_sentiment(headlines)
@@ -1290,6 +1301,7 @@ loop do
     req = parse_request(client)
     next unless req
     path = req[:path]
+    ensure_users_loaded
     user = get_session_user(req[:headers])
 
     case
