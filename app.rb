@@ -16,16 +16,15 @@ PLAID_SECRET = ENV.fetch('PLAID_SECRET', 'd317e1fe2ddfb2e89bc603a0f8d1f0')
 PLAID_ENV = ENV.fetch('PLAID_ENV', 'production')
 PLAID_HOST = 'https://production.plaid.com'
 
-HF_API_KEY = ENV.fetch('HF_API_KEY', '')
+AI_API_KEY = ENV.fetch('GROQ_API_KEY', ENV.fetch('HF_API_KEY', ''))
 
 def ai_ask(prompt, max_tokens = 300)
-  # Use OpenRouter free models (no billing needed)
-  uri = URI('https://openrouter.ai/api/v1/chat/completions')
-  req = Net::HTTP::Post.new(uri, 'Content-Type' => 'application/json', 'Authorization' => "Bearer #{HF_API_KEY}", 'HTTP-Referer' => 'https://stockpulse-ai-h0qe.onrender.com')
-  req.body = JSON.generate({ model: 'meta-llama/llama-3.2-3b-instruct:free', messages: [{ role: 'user', content: prompt }], max_tokens: max_tokens })
-  res = Net::HTTP.start(uri.host, uri.port, use_ssl: true, open_timeout: 15, read_timeout: 60) { |h| h.request(req) }
+  uri = URI('https://api.groq.com/openai/v1/chat/completions')
+  req = Net::HTTP::Post.new(uri, 'Content-Type' => 'application/json', 'Authorization' => "Bearer #{AI_API_KEY}")
+  req.body = JSON.generate({ model: 'llama-3.1-8b-instant', messages: [{ role: 'user', content: prompt }], max_tokens: max_tokens })
+  res = Net::HTTP.start(uri.host, uri.port, use_ssl: true, open_timeout: 15, read_timeout: 30) { |h| h.request(req) }
   data = JSON.parse(res.body)
-  data.dig('choices', 0, 'message', 'content') || data.dig('error', 'message') || data['error']&.to_s || 'No response'
+  data.dig('choices', 0, 'message', 'content') || data.dig('error', 'message') || 'No response'
 rescue => e
   "Error: #{e.message}"
 end
