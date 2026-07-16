@@ -7,11 +7,5 @@ services:
     envVars:
       - key: USERS_FILE
         value: /tmp/stock_users.json
-      - key: PLAID_CLIENT_ID
-        sync: false
-      - key: PLAID_SECRET
-        sync: false
-      - key: PLAID_ENV
-        value: production
       - key: GROQ_API_KEY
         sync: false

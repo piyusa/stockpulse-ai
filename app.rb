@@ -19,11 +19,6 @@ PORT = (ENV["PORT"] || 8888).to_i
 USERS_FILE = ENV.fetch('USERS_FILE', File.expand_path('~/.stock_users.json'))
 DEFAULT_STOCKS = %w[AAPL MSFT NVDA GOOG AMZN META TSM AVGO ORCL CRM]
 
-PLAID_CLIENT_ID = ENV.fetch('PLAID_CLIENT_ID', '')
-PLAID_SECRET = ENV.fetch('PLAID_SECRET', '')
-PLAID_ENV = ENV.fetch('PLAID_ENV', 'production')
-PLAID_HOST = 'https://production.plaid.com'
-
 AI_API_KEY = ENV.fetch('GROQ_API_KEY', ENV.fetch('HF_API_KEY', ''))
 
 def ai_ask(prompt, max_tokens = 300)
@@ -100,35 +95,6 @@ def fetch_kalshi_closing(window_min: 60, threshold: 0.90, min_volume: 0.0, keywo
     break if cursor.nil? || cursor.to_s.empty? || pages >= 5
   end
   results.sort_by { |x| [x[:minutesToClose], -x[:confidence]] }
-end
-
-# --- User store ---
-def plaid_request(endpoint, body)
-  uri = URI("#{PLAID_HOST}#{endpoint}")
-  req = Net::HTTP::Post.new(uri, 'Content-Type' => 'application/json')
-  req.body = JSON.generate(body.merge('client_id' => PLAID_CLIENT_ID, 'secret' => PLAID_SECRET))
-  res = Net::HTTP.start(uri.host, uri.port, use_ssl: true, open_timeout: 15, read_timeout: 30) { |h| h.request(req) }
-  JSON.parse(res.body)
-rescue => e
-  { 'error_message' => e.message }
-end
-
-def plaid_create_link_token(user_id)
-  plaid_request('/link/token/create', {
-    'user' => { 'client_user_id' => Digest::SHA256.hexdigest(user_id)[0..31] },
-    'client_name' => 'StockPulse AI',
-    'products' => ['investments'],
-    'country_codes' => ['US'],
-    'language' => 'en'
-  })
-end
-
-def plaid_exchange_token(public_token)
-  plaid_request('/item/public_token/exchange', { 'public_token' => public_token })
-end
-
-def plaid_get_holdings(access_token)
-  plaid_request('/investments/holdings/get', { 'access_token' => access_token })
 end
 
 # --- User store ---
@@ -569,7 +535,6 @@ HTML = <<~'HTML'
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>StockPulse AI</title>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
-<script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
 <style>
   *{box-sizing:border-box}
   body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f8f9fc;color:#1a1a2e;margin:0;padding:0}
@@ -704,7 +669,6 @@ HTML = <<~'HTML'
     </div>
     <div id="tab-portfolio" style="display:none">
     <h2>💰 Portfolio Tracker</h2>
-    <div style="text-align:center;margin-bottom:20px"><button onclick="connectBrokerage()" style="background:#6c63ff;color:#fff;border:none;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer">🔗 Connect Brokerage (Robinhood, etc.)</button><span id="plaid-status" style="margin-left:12px;font-size:12px;color:#888"></span></div>
     <div class="controls">
       <input type="text" id="pf-symbol" placeholder="Ticker" maxlength="5" style="width:80px">
       <input type="number" id="pf-buy" placeholder="Buy price" step="0.01" style="width:110px;background:#fff;border:1px solid #e5e7eb;color:#1a1a2e;padding:10px;border-radius:8px;font-size:14px">
@@ -993,32 +957,16 @@ async function loadPortfolio(){
   if(!d.ok)return;
   const manual=d.portfolio||[];
 
-  // Fetch Plaid holdings
-  let plaidHoldings=[];
-  try{const r2=await fetch('/api/plaid/holdings');const d2=await r2.json();if(d2.ok&&d2.holdings)plaidHoldings=d2.holdings.filter(h=>h.symbol!=='N/A');}catch(e){}
-
-  if(!manual.length&&!plaidHoldings.length){document.getElementById('pf-tb').innerHTML='<tr><td colspan="11" style="text-align:center;color:#666;padding:30px">No positions yet. Add stocks or connect your brokerage.</td></tr>';document.getElementById('pf-total').innerHTML='';return;}
+  if(!manual.length){document.getElementById('pf-tb').innerHTML='<tr><td colspan="11" style="text-align:center;color:#666;padding:30px">No positions yet. Add stocks to track your portfolio.</td></tr>';document.getElementById('pf-total').innerHTML='';return;}
 
   // Get current prices
-  const allSymbols=[...new Set([...manual.map(p=>p.symbol),...plaidHoldings.map(h=>h.symbol)])];
+  const allSymbols=[...new Set(manual.map(p=>p.symbol))];
   const prices={};
   for(const s of lastStocks)prices[s.symbol]=s.price;
   for(const sym of allSymbols){if(!prices[sym]){try{const r3=await fetch('/api/detail?symbol='+sym);const dd=await r3.json();prices[sym]=dd.price;}catch(e){}}}
 
   let totalInvested=0,totalValue=0;
   let rows='';
-
-  // Plaid holdings
-  plaidHoldings.forEach(h=>{
-    const cur=prices[h.symbol]||0;
-    const invested=h.costBasis||0;
-    const value=h.value||(cur*h.quantity);
-    const pl=value-invested;
-    const pct=invested>0?((pl/invested)*100).toFixed(2):0;
-    totalInvested+=invested;totalValue+=value;
-    const cls=pl>=0?'pos':'neg';
-    rows+=`<tr><td><a href="#" onclick="openDetail('${h.symbol}');return false" style="color:#4f46e5;text-decoration:none;font-weight:700">${h.symbol}</a></td><td><span style="background:#eef2ff;color:#4f46e5;padding:2px 8px;border-radius:10px;font-size:10px">Brokerage</span></td><td>$${(invested/h.quantity||0).toFixed(2)}</td><td>$${cur.toFixed(2)}</td><td>${h.quantity}</td><td>$${invested.toFixed(2)}</td><td>$${value.toFixed(2)}</td><td class="${cls}">${pl>=0?'+':''}$${pl.toFixed(2)}</td><td class="${cls}">${pct}%</td><td><button onclick="addToWatchlist('${h.symbol}')" style="background:#eef2ff;color:#4f46e5;border:1px solid #c7d2fe;padding:4px 8px;border-radius:6px;font-size:11px;cursor:pointer">+👁</button></td><td></td></tr>`;
-  });
 
   // Manual holdings
   manual.forEach((p,i)=>{
@@ -1069,7 +1017,6 @@ async function loadAlerts(){
   }).join('');
 }
 
-// --- Plaid Brokerage ---
 async function setAlertFromModal(sym){
   const btn=document.querySelector('[onclick*="setAlertFromModal"]');
   const dir=document.getElementById('modal-al-dir').value;
@@ -1266,29 +1213,6 @@ function checkAnswer(lesson,answer){
   if(correct&&!completedLessons.includes(lesson)){completedLessons.push(lesson);localStorage.setItem('sp_lessons',JSON.stringify(completedLessons));updateProgress();toast('✓ Correct! Lesson completed');}
   else if(!correct)toast('✗ Try again next time','error');
 }
-
-// --- Plaid Brokerage ---
-async function connectBrokerage(){
-  document.getElementById('plaid-status').textContent='Connecting...';
-  try{
-    const r=await fetch('/api/plaid/link-token',{method:'POST'});
-    const d=await r.json();
-    if(!d.ok){toast(d.error||'Failed to get link token','error');document.getElementById('plaid-status').textContent='Error: '+d.error;return;}
-    const handler=Plaid.create({
-      token:d.link_token,
-      onSuccess:async(public_token)=>{
-        document.getElementById('plaid-status').textContent='Exchanging token...';
-        const r2=await fetch('/api/plaid/exchange',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({public_token})});
-        const d2=await r2.json();
-        if(d2.ok){toast('Brokerage connected!');document.getElementById('plaid-status').textContent='✓ Connected';loadPlaidHoldings();}
-        else{toast(d2.error||'Exchange failed','error');document.getElementById('plaid-status').textContent='Error: '+(d2.error||'exchange failed');}
-      },
-      onExit:(err)=>{document.getElementById('plaid-status').textContent=err?'Error: '+err.error_message:'';}
-    });
-    handler.open();
-  }catch(e){toast('Connection error: '+e.message,'error');document.getElementById('plaid-status').textContent='Error: '+e.message;}
-}
-async function loadPlaidHoldings(){}
 
 function closeDetail(){document.getElementById('modal').style.display='none';}
 async function openDetail(sym){
@@ -1763,54 +1687,6 @@ loop do
         json_response(client, { ok: true, answer: answer })
       else
         json_response(client, { error: 'Not authenticated' }, '401 Unauthorized')
-      end
-
-    when path == '/api/plaid/link-token' && req[:method] == 'POST'
-      if user
-        begin
-          result = plaid_create_link_token(user)
-          if result['link_token']
-            json_response(client, { ok: true, link_token: result['link_token'] })
-          else
-            json_response(client, { ok: false, error: result['error_message'] || result.to_s[0..200] })
-          end
-        rescue => e
-          json_response(client, { ok: false, error: "Plaid connection failed: #{e.message}" })
-        end
-      else
-        json_response(client, { error: 'Not authenticated' }, '401 Unauthorized')
-      end
-
-    when path == '/api/plaid/exchange' && req[:method] == 'POST'
-      if user && $users[user]
-        data = JSON.parse(req[:body])
-        result = plaid_exchange_token(data['public_token'])
-        if result['access_token']
-          $users[user]['plaid_access_token'] = result['access_token']
-          save_users($users)
-          json_response(client, { ok: true })
-        else
-          json_response(client, { ok: false, error: result['error_message'] || 'Exchange failed' })
-        end
-      else
-        json_response(client, { error: 'Not authenticated' }, '401 Unauthorized')
-      end
-
-    when path == '/api/plaid/holdings' && req[:method] == 'GET'
-      if user && $users[user] && $users[user]['plaid_access_token']
-        result = plaid_get_holdings($users[user]['plaid_access_token'])
-        if result['holdings']
-          holdings = result['holdings'].map do |h|
-            sec = result['securities']&.find { |s| s['security_id'] == h['security_id'] }
-            { symbol: sec&.dig('ticker_symbol') || 'N/A', quantity: h['quantity'],
-              costBasis: h['cost_basis'], value: h['institution_value'] }
-          end
-          json_response(client, { ok: true, holdings: holdings })
-        else
-          json_response(client, { ok: false, error: result['error_message'] || 'Failed to fetch holdings' })
-        end
-      else
-        json_response(client, { ok: false, error: 'No brokerage connected' })
       end
 
     else
