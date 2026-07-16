@@ -6,6 +6,7 @@ require 'securerandom'
 require 'digest'
 require 'base64'
 require 'date'
+require 'time'
 
 begin
   require 'pg'
@@ -18,8 +19,8 @@ PORT = (ENV["PORT"] || 8888).to_i
 USERS_FILE = ENV.fetch('USERS_FILE', File.expand_path('~/.stock_users.json'))
 DEFAULT_STOCKS = %w[AAPL MSFT NVDA GOOG AMZN META TSM AVGO ORCL CRM]
 
-PLAID_CLIENT_ID = ENV.fetch('PLAID_CLIENT_ID', '69fe13dbee876c000e7c3068')
-PLAID_SECRET = ENV.fetch('PLAID_SECRET', 'd317e1fe2ddfb2e89bc603a0f8d1f0')
+PLAID_CLIENT_ID = ENV.fetch('PLAID_CLIENT_ID', '')
+PLAID_SECRET = ENV.fetch('PLAID_SECRET', '')
 PLAID_ENV = ENV.fetch('PLAID_ENV', 'production')
 PLAID_HOST = 'https://production.plaid.com'
 
@@ -38,6 +39,68 @@ end
 
 POSITIVE_WORDS = %w[surge rally gain rise jump soar beat bullish upgrade buy strong growth boom record high peak outperform positive optimistic profit revenue earnings exceeded].freeze
 NEGATIVE_WORDS = %w[drop fall crash decline plunge miss bearish downgrade sell weak loss slump low cut risk fear concern negative pessimistic layoff recession tariff].freeze
+
+# --- Kalshi: markets about to close that have a clear winner (read-only) ---
+# Uses Kalshi's PUBLIC market-data API (no auth). Informational only — this does
+# NOT place trades or touch any account. A "clear winner" means the YES price is
+# near $1.00 (YES favored) or near $0.00 (NO favored). Queries by close-time window
+# so the result set stays small and fast for a web request.
+def fetch_kalshi_closing(window_min: 60, threshold: 0.90, min_volume: 0.0, keyword: nil)
+  now = Time.now.to_i
+  max_ts = now + (window_min * 60)
+  base = 'https://api.elections.kalshi.com/trade-api/v2/markets'
+  results = []
+  cursor = nil
+  pages = 0
+  loop do
+    params = { 'min_close_ts' => now, 'max_close_ts' => max_ts, 'limit' => 1000 }
+    params['cursor'] = cursor if cursor
+    uri = URI(base + '?' + URI.encode_www_form(params))
+    r = Net::HTTP::Get.new(uri)
+    r['User-Agent'] = 'StockPulseAI/1.0'
+    res = Net::HTTP.start(uri.host, uri.port, use_ssl: true, open_timeout: 8, read_timeout: 15) { |h| h.request(r) }
+    d = JSON.parse(res.body)
+    (d['markets'] || []).each do |m|
+      ticker = m['ticker'].to_s
+      next unless m['status'] == 'active'          # only tradeable/open markets
+      next if ticker.upcase.include?('MVE')         # skip multivariate combo legs
+      yb = m['yes_bid_dollars'].to_f
+      ya = m['yes_ask_dollars'].to_f
+      last = m['last_price_dollars'].to_f
+      vol = m['volume_fp'].to_f
+      # Best YES probability estimate; skip empty books (0/0) to avoid false winners.
+      yes_price = if yb > 0 && ya > 0
+                    (yb + ya) / 2.0
+                  elsif last > 0
+                    last
+                  end
+      next if yes_price.nil?
+      next if vol < min_volume
+      title = (m['title'] || '').strip
+      subtitle = (m['subtitle'] || '').strip
+      if keyword && !keyword.to_s.strip.empty?
+        next unless "#{title} #{subtitle} #{ticker}".downcase.include?(keyword.downcase)
+      end
+      if yes_price >= threshold
+        favored = 'YES'; conf = yes_price
+      elsif yes_price <= (1.0 - threshold)
+        favored = 'NO'; conf = 1.0 - yes_price
+      else
+        next
+      end
+      close_t = (Time.parse(m['close_time']) rescue nil)
+      next unless close_t
+      mins = ((close_t.to_i - now) / 60.0).round(1)
+      results << { ticker: ticker, title: title, subtitle: subtitle, favored: favored,
+                   confidence: conf.round(4), yesPrice: yes_price.round(4),
+                   volume: vol.round(0), minutesToClose: mins, closeTime: m['close_time'] }
+    end
+    cursor = d['cursor']
+    pages += 1
+    break if cursor.nil? || cursor.to_s.empty? || pages >= 5
+  end
+  results.sort_by { |x| [x[:minutesToClose], -x[:confidence]] }
+end
 
 # --- User store ---
 def plaid_request(endpoint, body)
@@ -623,7 +686,7 @@ HTML = <<~'HTML'
       <p>Your Personal Watchlist • Real-Time Prices • Sentiment • Prediction</p>
       <div class="status live" id="status">● LIVE</div>
     </header>
-    <div class="tabs"><button class="tab active" onclick="switchTab('watchlist')">📊 Watchlist</button><button class="tab" onclick="switchTab('portfolio')">💰 Portfolio</button><button class="tab" onclick="switchTab('alerts')">🔔 Alerts</button><button class="tab" onclick="switchTab('papertrade')">🎮 Paper Trade</button><button class="tab" onclick="switchTab('heatmap')">🗺️ Heatmap</button><button class="tab" onclick="switchTab('learn')">🎓 Learn</button></div>
+    <div class="tabs"><button class="tab active" onclick="switchTab('watchlist')">📊 Watchlist</button><button class="tab" onclick="switchTab('portfolio')">💰 Portfolio</button><button class="tab" onclick="switchTab('alerts')">🔔 Alerts</button><button class="tab" onclick="switchTab('papertrade')">🎮 Paper Trade</button><button class="tab" onclick="switchTab('heatmap')">🗺️ Heatmap</button><button class="tab" onclick="switchTab('kalshi')">🎯 Kalshi</button><button class="tab" onclick="switchTab('learn')">🎓 Learn</button></div>
     <div id="tab-watchlist">
     <div class="controls">
       <input type="text" id="symbolInput" placeholder="e.g. TSLA" maxlength="5">
@@ -698,6 +761,32 @@ HTML = <<~'HTML'
     <p style="color:#6b7280;text-align:center;margin-bottom:20px">Daily performance of S&P 500 sectors</p>
     <div id="heatmap-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-bottom:30px"></div>
     <div class="updated" id="heatmap-updated"></div>
+    </div>
+    <div id="tab-kalshi" style="display:none">
+    <h2>🎯 Kalshi Closing Winners</h2>
+    <p style="color:#6b7280;text-align:center;margin-bottom:16px">Prediction markets about to close with a clear winner (YES near $1.00 or near $0.00). Read-only • informational only • not financial advice.</p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center;align-items:center;margin-bottom:16px">
+      <label style="font-size:13px;color:#6b7280">Closing within
+        <select id="kalshi-window" style="padding:5px;border-radius:6px;border:1px solid #d1d5db">
+          <option value="30">30 min</option><option value="60" selected>60 min</option>
+          <option value="120">2 hours</option><option value="360">6 hours</option>
+        </select>
+      </label>
+      <label style="font-size:13px;color:#6b7280">Confidence ≥
+        <select id="kalshi-threshold" style="padding:5px;border-radius:6px;border:1px solid #d1d5db">
+          <option value="0.9" selected>90%</option><option value="0.95">95%</option><option value="0.98">98%</option>
+        </select>
+      </label>
+      <label style="font-size:13px;color:#6b7280">Min volume
+        <input id="kalshi-minvol" type="number" value="0" min="0" style="width:80px;padding:5px;border-radius:6px;border:1px solid #d1d5db">
+      </label>
+      <button class="tab" onclick="loadKalshi()">🔄 Refresh</button>
+    </div>
+    <div class="table-wrap">
+    <table><thead><tr><th>Closes in</th><th>Favored</th><th>Confidence</th><th>YES price</th><th>Volume</th><th>Market</th></tr></thead>
+    <tbody id="kalshi-body"><tr><td colspan="6" style="text-align:center;color:#9ca3af">Click Refresh to load.</td></tr></tbody></table>
+    </div>
+    <div class="updated" id="kalshi-updated"></div>
     </div>
     <div id="tab-learn" style="display:none">
     <h2>🎓 Trading Coach</h2>
@@ -867,12 +956,13 @@ setInterval(()=>{if(document.getElementById('app-view').style.display!=='none')u
 function switchTab(tab){
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
   document.querySelector(`.tab[onclick*="${tab}"]`).classList.add('active');
-  ['watchlist','portfolio','alerts','papertrade','heatmap','learn'].forEach(t=>document.getElementById('tab-'+t).style.display=t===tab?'block':'none');
+  ['watchlist','portfolio','alerts','papertrade','heatmap','kalshi','learn'].forEach(t=>document.getElementById('tab-'+t).style.display=t===tab?'block':'none');
   if(tab==='portfolio'){loadPortfolio();}
   if(tab==='alerts')loadAlerts();
   if(tab==='learn')initLearn();
   if(tab==='papertrade')loadPaperTrade();
   if(tab==='heatmap')loadHeatmap();
+  if(tab==='kalshi')loadKalshi();
 }
 
 // --- AI Summary ---
@@ -1102,6 +1192,36 @@ async function loadHeatmap(){
     </div>`;
   }).join('');
   document.getElementById('heatmap-updated').textContent=`Updated: ${new Date().toLocaleString()}`;
+}
+
+// --- Kalshi Closing Winners (read-only) ---
+async function loadKalshi(){
+  const body=document.getElementById('kalshi-body');
+  body.innerHTML='<tr><td colspan="6" style="text-align:center;color:#9ca3af">Loading markets…</td></tr>';
+  const w=document.getElementById('kalshi-window').value;
+  const th=document.getElementById('kalshi-threshold').value;
+  const mv=document.getElementById('kalshi-minvol').value||'0';
+  try{
+    const r=await fetch(`/api/kalshi/closing?window=${w}&threshold=${th}&min_volume=${mv}`);
+    const d=await r.json();
+    if(!d.ok){body.innerHTML=`<tr><td colspan="6" style="text-align:center;color:#dc2626">Error: ${d.error||'failed to load'}</td></tr>`;return;}
+    if(!d.markets||d.markets.length===0){body.innerHTML='<tr><td colspan="6" style="text-align:center;color:#9ca3af">No markets closing soon with a clear winner. Try a wider window or lower confidence.</td></tr>';}
+    else{
+      body.innerHTML=d.markets.map(m=>{
+        const color=m.favored==='YES'?'#059669':'#dc2626';
+        const title=(m.title||m.ticker)+(m.subtitle?` — ${m.subtitle}`:'');
+        return`<tr>
+          <td>${Math.round(m.minutesToClose)}m</td>
+          <td style="font-weight:700;color:${color}">${m.favored}</td>
+          <td>${Math.round(m.confidence*100)}%</td>
+          <td>$${m.yesPrice.toFixed(2)}</td>
+          <td>${m.volume}</td>
+          <td style="max-width:360px">${title}</td>
+        </tr>`;
+      }).join('');
+    }
+    document.getElementById('kalshi-updated').textContent=`Updated: ${new Date().toLocaleString()} • ${d.count} market(s) • informational only, not financial advice`;
+  }catch(e){body.innerHTML=`<tr><td colspan="6" style="text-align:center;color:#dc2626">Error: ${e.message}</td></tr>`;}
 }
 
 // --- Learning Coach ---
@@ -1566,6 +1686,24 @@ loop do
         json_response(client, { ok: true })
       else
         json_response(client, { error: 'Not authenticated' }, '401 Unauthorized')
+      end
+
+    when path =~ /^\/api\/kalshi\/closing/ && req[:method] == 'GET'
+      params = {}
+      if path.include?('?')
+        (URI.decode_www_form(path.split('?', 2)[1]) rescue []).each { |k, v| params[k] = v }
+      end
+      window = (params['window'] || '60').to_i
+      window = 60 if window <= 0 || window > 1440
+      threshold = (params['threshold'] || '0.9').to_f
+      threshold = 0.9 unless threshold > 0.5 && threshold <= 1.0
+      min_vol = (params['min_volume'] || '0').to_f
+      kw = params['keyword']
+      begin
+        markets = fetch_kalshi_closing(window_min: window, threshold: threshold, min_volume: min_vol, keyword: kw)
+        json_response(client, { ok: true, window: window, threshold: threshold, count: markets.size, markets: markets })
+      rescue => e
+        json_response(client, { ok: false, error: e.message })
       end
 
     when path == '/api/heatmap'
